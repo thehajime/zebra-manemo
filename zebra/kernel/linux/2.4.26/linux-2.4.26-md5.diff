@@ -1,0 +1,1771 @@
+diff -ruN linux-2.4.26/Documentation/Configure.help linux-2.4.26-md5/Documentation/Configure.help
+--- linux-2.4.26/Documentation/Configure.help	2004-04-14 06:05:24.000000000 -0700
++++ linux-2.4.26-md5/Documentation/Configure.help	2004-04-21 13:50:57.000000000 -0700
+@@ -6176,6 +6176,14 @@
+   gated-5). This routing protocol is not used widely, so say N unless
+   you want to play with it.
+ 
++MD5 Authentication Support for TCP
++CONFIG_TCP_MD5_AUTH
++  RFC2385 specifies a method of giving MD5 protection to TCP
++  sessions. It is commonly used to protect BGP sessions between core
++  routers on the Internet.
++
++  Say Y if you want to use TCP MD5 Authentication for BGP.
++
+ Unix domain sockets
+ CONFIG_UNIX
+   If you say Y here, you will include support for Unix domain sockets;
+diff -ruN linux-2.4.26/include/linux/md5k.h linux-2.4.26-md5/include/linux/md5k.h
+--- linux-2.4.26/include/linux/md5k.h	1969-12-31 16:00:00.000000000 -0800
++++ linux-2.4.26-md5/include/linux/md5k.h	2004-04-21 13:50:57.000000000 -0700
+@@ -0,0 +1,59 @@
++/*	$OpenBSD: md5k.h,v 1.5 1999/07/01 20:21:18 deraadt Exp $	*/
++
++/*
++ * Copyright (C) 1991-2, RSA Data Security, Inc. Created 1991. All
++ * rights reserved.
++ * 
++ * License to copy and use this software is granted provided that it
++ * is identified as the "RSA Data Security, Inc. MD5 Message-Digest
++ * Algorithm" in all material mentioning or referencing this software
++ * or this function.
++ * 
++ * License is also granted to make and use derivative works provided
++ * that such works are identified as "derived from the RSA Data
++ * Security, Inc. MD5 Message-Digest Algorithm" in all material
++ * mentioning or referencing the derived work.
++ * 
++ * RSA Data Security, Inc. makes no representations concerning either
++ * the merchantability of this software or the suitability of this
++ * software for any particular purpose. It is provided "as is"
++ * without express or implied warranty of any kind.
++ * 
++ * These notices must be retained in any copies of any part of this
++ * documentation and/or software.
++ */
++
++#ifndef _MD5K_H_
++#define _MD5K_H_
++
++/* POINTER defines a generic pointer type */
++typedef void *POINTER;
++
++/* UINT2 defines a two byte word */
++typedef u_int16_t UINT2;
++
++/* UINT4 defines a four byte word */
++typedef u_int32_t UINT4;
++
++/* MD5 context. */
++typedef struct {
++	UINT4 state[4];		/* state (ABCD) */
++	UINT4 count[2];		/* number of bits, modulo 2^64 (lsb first) */
++	u_int8_t buffer[64];	/* input buffer */
++} MD5_CTX;
++
++#ifndef __P
++#ifdef __STDC__
++#define __P(x)  x
++#else
++#define __P(x)  ()
++#endif
++#endif
++
++void MD5Init __P((MD5_CTX *));
++void MD5Update __P((MD5_CTX *, unsigned char *, unsigned int));
++void MD5Final __P((unsigned char [16], MD5_CTX *));
++
++#define _MD5_H_
++
++#endif /* _MD5K_H_ */
+diff -ruN linux-2.4.26/include/linux/tcp.h linux-2.4.26-md5/include/linux/tcp.h
+--- linux-2.4.26/include/linux/tcp.h	2001-11-22 11:47:11.000000000 -0800
++++ linux-2.4.26-md5/include/linux/tcp.h	2004-04-21 13:59:21.000000000 -0700
+@@ -127,6 +127,7 @@
+ #define TCP_WINDOW_CLAMP	10	/* Bound advertised window */
+ #define TCP_INFO		11	/* Information about this connection. */
+ #define TCP_QUICKACK		12	/* Block/reenable quick acks */
++#define TCP_MD5_AUTH		13	/* RFC2385 TCP MD5 Authentication. */
+ 
+ #define TCPI_OPT_TIMESTAMPS	1
+ #define TCPI_OPT_SACK		2
+diff -ruN linux-2.4.26/include/linux/tcp_md5.h linux-2.4.26-md5/include/linux/tcp_md5.h
+--- linux-2.4.26/include/linux/tcp_md5.h	1969-12-31 16:00:00.000000000 -0800
++++ linux-2.4.26-md5/include/linux/tcp_md5.h	2004-04-21 14:11:19.000000000 -0700
+@@ -0,0 +1,59 @@
++/* Copytight 2003 Kunihiro Ishiguro
++ *
++ * Author: Kunihiro Ishiguro <kunihiro@ipinfusion.com>
++ * Modified to work with the latest Linux kernel.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */ 
++/* Copyright 2001 AYR Networks, Inc.
++ *
++ * Author: Rick Payne
++ *
++ * This is a free document; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation:
++ *     http://www.gnu.org/copyleft/gpl.html
++ */
++
++#ifndef _LINUX_TCP_MD5_H
++#define _LINUX_TCP_MD5_H
++
++#ifndef TCP_MD5_AUTH
++#define TCP_MD5_AUTH	13
++#endif
++
++#define TCP_MD5_AUTH_ADD 1
++#define TCP_MD5_AUTH_DEL 2
++
++struct tcp_rfc2385_cmd {
++	u_int8_t     command;    /* Command - Add/Delete */
++	u_int32_t    address;    /* IPV4 address associated */
++	u_int8_t     keylen;     /* MD5 Key len (do NOT assume 0 terminated ascii) */
++	void         *key;       /* MD5 Key */
++};
++
++#ifdef __KERNEL__
++struct tcp_rfc2385 *tcp_v4_md5_lookup (struct sock *, __u32);
++int tcp_v4_md5_do_add (struct sock *, __u32, char *, __u8);
++int tcp_v4_parse_md5_keys (struct sock *, char *, int);
++void tcp_v4_calc_md5_hash (char *, struct tcp_rfc2385 *,
++			   __u32, __u32,
++			   struct tcphdr *, int, int);
++
++struct tcp_rfc2385 {
++	__u32   addr;      /* The IPv4 Address for this key */
++	__u8    keylen;    /* The Key Length */
++	__u8    *key;      /* The key itself - not null terminated */
++};
++#endif
++
++#endif /* _LINUX_TCP_MD5_H */
+diff -ruN linux-2.4.26/include/net/sock.h linux-2.4.26-md5/include/net/sock.h
+--- linux-2.4.26/include/net/sock.h	2004-04-14 06:05:40.000000000 -0700
++++ linux-2.4.26-md5/include/net/sock.h	2004-04-21 13:59:21.000000000 -0700
+@@ -109,6 +109,10 @@
+ #include <asm/atomic.h>
+ #include <net/dst.h>
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++#include <linux/tcp_md5.h>
++#endif
++
+ 
+ /* The AF_UNIX specific socket options */
+ struct unix_opt {
+@@ -367,6 +371,11 @@
+ 	__u8	nonagle;	/* Disable Nagle algorithm?             */
+ 	__u8	keepalive_probes; /* num of allowed keep alive probes	*/
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	__u16   md5_db_entries; /* Number of entries in the database */
++	struct tcp_rfc2385 *md5_db; /* MD5 Key Database */
++#endif
++
+ /*	PAWS/RTTM data	*/
+         __u32	rcv_tsval;	/* Time stamp value             	*/
+         __u32	rcv_tsecr;	/* Time stamp echo reply        	*/
+diff -ruN linux-2.4.26/include/net/tcp.h linux-2.4.26-md5/include/net/tcp.h
+--- linux-2.4.26/include/net/tcp.h	2004-04-14 06:05:40.000000000 -0700
++++ linux-2.4.26-md5/include/net/tcp.h	2004-04-21 14:02:31.000000000 -0700
+@@ -191,6 +191,10 @@
+ 	struct in6_addr		v6_daddr;
+ 	struct in6_addr		v6_rcv_saddr;
+ #endif
++#ifdef CONFIG_TCP_MD5_AUTH
++	__u8                    *md5_key;
++	__u8                    md5_keylen;
++#endif
+ };
+ 
+ extern kmem_cache_t *tcp_timewait_cachep;
+@@ -201,6 +205,14 @@
+ #ifdef INET_REFCNT_DEBUG
+ 		printk(KERN_DEBUG "tw_bucket %p released\n", tw);
+ #endif
++#ifdef CONFIG_TCP_MD5_AUTH
++		/* Free the memory used for any md5 key */
++		if (tw->md5_key) {
++			kfree (tw->md5_key);
++			tw->md5_key = NULL;
++			tw->md5_keylen = 0;
++		}
++#endif
+ 		kmem_cache_free(tcp_timewait_cachep, tw);
+ 	}
+ }
+@@ -406,6 +418,7 @@
+ #define TCPOPT_SACK_PERM        4       /* SACK Permitted */
+ #define TCPOPT_SACK             5       /* SACK Block */
+ #define TCPOPT_TIMESTAMP	8	/* Better RTT estimations/PAWS */
++#define TCPOPT_MD5_AUTH		19	/* MD5 protection */
+ 
+ /*
+  *     TCP option lengths
+@@ -415,6 +428,7 @@
+ #define TCPOLEN_WINDOW         3
+ #define TCPOLEN_SACK_PERM      2
+ #define TCPOLEN_TIMESTAMP      10
++#define TCPOLEN_MD5_AUTH       18
+ 
+ /* But this is what stacks really send out. */
+ #define TCPOLEN_TSTAMP_ALIGNED		12
+@@ -423,6 +437,7 @@
+ #define TCPOLEN_SACK_BASE		2
+ #define TCPOLEN_SACK_BASE_ALIGNED	4
+ #define TCPOLEN_SACK_PERBLOCK		8
++#define TCPOLEN_MD5_AUTH_ALIGNED	20
+ 
+ #define TCP_TIME_RETRANS	1	/* Retransmit timer */
+ #define TCP_TIME_DACK		2	/* Delayed ack timer */
+@@ -476,7 +491,7 @@
+ 	int  (*rtx_syn_ack)	(struct sock *sk, struct open_request *req, struct dst_entry*);
+ 	void (*send_ack)	(struct sk_buff *skb, struct open_request *req);
+ 	void (*destructor)	(struct open_request *req);
+-	void (*send_reset)	(struct sk_buff *skb);
++	void (*send_reset)	(struct sock *sk, struct sk_buff *skb);
+ };
+ 
+ struct tcp_v4_open_req {
+@@ -695,6 +710,9 @@
+ static inline void tcp_clear_options(struct tcp_opt *tp)
+ {
+  	tp->tstamp_ok = tp->sack_ok = tp->wscale_ok = tp->snd_wscale = 0;
++#ifdef CONFIG_TCP_MD5_AUTH
++	tp->md5_db_entries = 0;
++#endif
+ }
+ 
+ enum tcp_tw_status
+@@ -915,6 +933,10 @@
+ 	if (tp->eff_sacks)
+ 		mss_now -= (TCPOLEN_SACK_BASE_ALIGNED +
+ 			    (tp->eff_sacks * TCPOLEN_SACK_PERBLOCK));
++
++	if (tcp_v4_md5_lookup (sk, sk->daddr))
++		mss_now -= TCPOLEN_MD5_AUTH_ALIGNED;
++
+ 	return mss_now;
+ }
+ 
+@@ -1422,7 +1444,11 @@
+ 	tp->num_sacks = 0;
+ }
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++static __inline__ void tcp_build_and_update_options(__u32 *ptr, struct tcp_opt *tp, __u32 tstamp, int md5, __u8 **md5_hash)
++#else
+ static __inline__ void tcp_build_and_update_options(__u32 *ptr, struct tcp_opt *tp, __u32 tstamp)
++#endif
+ {
+ 	if (tp->tstamp_ok) {
+ 		*ptr++ = __constant_htonl((TCPOPT_NOP << 24) |
+@@ -1450,6 +1476,14 @@
+ 			tp->eff_sacks--;
+ 		}
+ 	}
++
++#ifdef CONFIG_TCP_MD5_AUTH
++	if (md5) {
++		*ptr++ = __constant_htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
++					  (TCPOPT_MD5_AUTH << 8) | 18);
++		*md5_hash = (__u8 *)ptr;
++	}
++#endif
+ }
+ 
+ /* Construct a tcp options header for a SYN or SYN_ACK packet.
+@@ -1457,8 +1491,19 @@
+  * MAX_SYN_SIZE to match the new maximum number of options that you
+  * can generate.
+  */
++/*
++ * Note - that with the CONFIG_TCP_MD5_AUTH option, we make room for the
++ * 16 byte MD5 hash. This will be filled in later, so the pointer for the
++ * location to be filled is passed back up
++ */
++#ifdef CONFIG_TCP_MD5_AUTH
++static inline void tcp_syn_build_options(__u32 *ptr, int mss, int ts, int sack,
++					 int offer_wscale, int wscale, __u32 tstamp, __u32 ts_recent,
++					 __u8 md5_enabled, __u8 **md5_hash)
++#else
+ static inline void tcp_syn_build_options(__u32 *ptr, int mss, int ts, int sack,
+-					     int offer_wscale, int wscale, __u32 tstamp, __u32 ts_recent)
++					 int offer_wscale, int wscale, __u32 tstamp, __u32 ts_recent)
++#endif
+ {
+ 	/* We always get an MSS option.
+ 	 * The option bytes which will be seen in normal data
+@@ -1488,6 +1533,17 @@
+ 					  (TCPOPT_SACK_PERM << 8) | TCPOLEN_SACK_PERM);
+ 	if (offer_wscale)
+ 		*ptr++ = htonl((TCPOPT_NOP << 24) | (TCPOPT_WINDOW << 16) | (TCPOLEN_WINDOW << 8) | (wscale));
++
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* If MD5 is enabled, then we set the option, and include the size
++	 * (always 18). The actual MD5 hash is added just before the
++	 * packet is sent */
++	if (md5_enabled) {
++		*ptr++ = __constant_htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
++					  (TCPOPT_MD5_AUTH << 8) | 18);
++		*md5_hash = (__u8 *)ptr;
++	}
++#endif
+ }
+ 
+ /* Determine a window scaling and initial window to offer.
+diff -ruN linux-2.4.26/lib/Makefile linux-2.4.26-md5/lib/Makefile
+--- linux-2.4.26/lib/Makefile	2004-04-14 06:05:40.000000000 -0700
++++ linux-2.4.26-md5/lib/Makefile	2004-04-21 13:50:57.000000000 -0700
+@@ -37,6 +37,10 @@
+ obj-y += $(join $(subdir-y),$(subdir-y:%=/%.o))
+ 
+ 
++ifeq ($(CONFIG_TCP_MD5_AUTH),y)
++  obj-y += md5.o
++endif
++
+ include $(TOPDIR)/Rules.make
+ 
+ crc32.o: crc32table.h
+diff -ruN linux-2.4.26/lib/md5.c linux-2.4.26-md5/lib/md5.c
+--- linux-2.4.26/lib/md5.c	1969-12-31 16:00:00.000000000 -0800
++++ linux-2.4.26-md5/lib/md5.c	2004-04-21 13:50:57.000000000 -0700
+@@ -0,0 +1,377 @@
++/*	$OpenBSD: md5.c,v 1.7 2000/11/08 15:26:40 art Exp $	*/
++
++/*
++ * The rest of the code is derived from MD5C.C by RSADSI. Minor cosmetic
++ * changes to accomodate it in the kernel by ji.
++ */
++
++/* MD5C.C - RSA Data Security, Inc., MD5 message-digest algorithm
++ */
++
++/* Copyright (C) 1991-2, RSA Data Security, Inc. Created 1991. All
++rights reserved.
++
++License to copy and use this software is granted provided that it
++is identified as the "RSA Data Security, Inc. MD5 Message-Digest
++Algorithm" in all material mentioning or referencing this software
++or this function.
++
++License is also granted to make and use derivative works provided
++that such works are identified as "derived from the RSA Data
++Security, Inc. MD5 Message-Digest Algorithm" in all material
++mentioning or referencing the derived work.
++
++RSA Data Security, Inc. makes no representations concerning either
++the merchantability of this software or the suitability of this
++software for any particular purpose. It is provided "as is"
++without express or implied warranty of any kind.
++
++These notices must be retained in any copies of any part of this
++documentation and/or software.
++ */
++
++/*
++ * Additions by JI
++ * 
++ * HAVEMEMCOPY is defined if mem* routines are available
++ *
++ */
++
++#include <linux/types.h>
++#include <linux/md5k.h>
++#include <asm/byteorder.h>
++/* Constants for MD5Transform routine.
++ */
++
++#define S11 7
++#define S12 12
++#define S13 17
++#define S14 22
++#define S21 5
++#define S22 9
++#define S23 14
++#define S24 20
++#define S31 4
++#define S32 11
++#define S33 16
++#define S34 23
++#define S41 6
++#define S42 10
++#define S43 15
++#define S44 21
++
++static void MD5Transform __P ((UINT4 [4], unsigned char [64]));
++
++#if __LITTLE_ENDIAN
++#define Encode MD5_memcpy
++#define Decode MD5_memcpy
++#else
++static void Encode __P ((unsigned char *, UINT4 *, unsigned int));
++static void Decode __P ((UINT4 *, unsigned char *, unsigned int));
++#endif
++
++#ifdef HAVEMEMCOPY
++#include <memory.h>
++#define MD5_memcpy	memcpy
++#define MD5_memset	memset
++#else
++#ifdef HAVEBCOPY
++#define MD5_memcpy(_a,_b,_c) bcopy((_b),(_a),(_c))
++#define MD5_memset(_a,_b,_c) bzero((_a),(_c))
++#else
++static void MD5_memcpy __P ((POINTER, POINTER, unsigned int));
++static void MD5_memset __P ((POINTER, int, unsigned int));
++#endif
++#endif
++static unsigned char PADDING[64] = {
++  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
++};
++
++/* F, G, H and I are basic MD5 functions.
++ */
++#define F(x, y, z) (((x) & (y)) | ((~x) & (z)))
++#define G(x, y, z) (((x) & (z)) | ((y) & (~z)))
++#define H(x, y, z) ((x) ^ (y) ^ (z))
++#define I(x, y, z) ((y) ^ ((x) | (~z)))
++
++/* ROTATE_LEFT rotates x left n bits.
++ */
++#define ROTATE_LEFT(x, n) (((x) << (n)) | ((x) >> (32-(n))))
++
++/* FF, GG, HH, and II transformations for rounds 1, 2, 3, and 4.
++Rotation is separate from addition to prevent recomputation.
++ */
++#define FF(a, b, c, d, x, s, ac) { \
++ (a) += F ((b), (c), (d)) + (x) + (UINT4)(ac); \
++ (a) = ROTATE_LEFT ((a), (s)); \
++ (a) += (b); \
++  }
++#define GG(a, b, c, d, x, s, ac) { \
++ (a) += G ((b), (c), (d)) + (x) + (UINT4)(ac); \
++ (a) = ROTATE_LEFT ((a), (s)); \
++ (a) += (b); \
++  }
++#define HH(a, b, c, d, x, s, ac) { \
++ (a) += H ((b), (c), (d)) + (x) + (UINT4)(ac); \
++ (a) = ROTATE_LEFT ((a), (s)); \
++ (a) += (b); \
++  }
++#define II(a, b, c, d, x, s, ac) { \
++ (a) += I ((b), (c), (d)) + (x) + (UINT4)(ac); \
++ (a) = ROTATE_LEFT ((a), (s)); \
++ (a) += (b); \
++  }
++
++/* MD5 initialization. Begins an MD5 operation, writing a new context.
++ */
++void MD5Init (context)
++MD5_CTX *context;                                        /* context */
++{
++  context->count[0] = context->count[1] = 0;
++  /* Load magic initialization constants.
++*/
++  context->state[0] = 0x67452301;
++  context->state[1] = 0xefcdab89;
++  context->state[2] = 0x98badcfe;
++  context->state[3] = 0x10325476;
++}
++
++/* MD5 block update operation. Continues an MD5 message-digest
++  operation, processing another message block, and updating the
++  context.
++ */
++void MD5Update (context, input, inputLen)
++MD5_CTX *context;                                        /* context */
++unsigned char *input;                                /* input block */
++unsigned int inputLen;                     /* length of input block */
++{
++  unsigned int i, index, partLen;
++
++  /* Compute number of bytes mod 64 */
++  index = (unsigned int)((context->count[0] >> 3) & 0x3F);
++
++  /* Update number of bits */
++  if ((context->count[0] += ((UINT4)inputLen << 3))
++   < ((UINT4)inputLen << 3))
++ context->count[1]++;
++  context->count[1] += ((UINT4)inputLen >> 29);
++
++  partLen = 64 - index;
++
++  /* Transform as many times as possible.
++*/
++  if (inputLen >= partLen) {
++ MD5_memcpy
++   ((POINTER)&context->buffer[index], (POINTER)input, partLen);
++ MD5Transform (context->state, context->buffer);
++
++ for (i = partLen; i + 63 < inputLen; i += 64)
++   MD5Transform (context->state, &input[i]);
++
++ index = 0;
++  }
++  else
++ i = 0;
++
++  /* Buffer remaining input */
++  MD5_memcpy
++ ((POINTER)&context->buffer[index], (POINTER)&input[i],
++  inputLen-i);
++}
++
++/* MD5 finalization. Ends an MD5 message-digest operation, writing the
++  the message digest and zeroizing the context.
++ */
++void MD5Final (digest, context)
++unsigned char digest[16];                         /* message digest */
++MD5_CTX *context;                                       /* context */
++{
++  unsigned char bits[8];
++  unsigned int index, padLen;
++
++  /* Save number of bits */
++  Encode (bits, context->count, 8);
++
++  /* Pad out to 56 mod 64.
++*/
++  index = (unsigned int)((context->count[0] >> 3) & 0x3f);
++  padLen = (index < 56) ? (56 - index) : (120 - index);
++  MD5Update (context, PADDING, padLen);
++
++  /* Append length (before padding) */
++  MD5Update (context, bits, 8);
++
++  if (digest != NULL)			/* Bill Simpson's padding */
++  {
++	  /* store state in digest */
++	  Encode (digest, context->state, 16);
++
++	  /* Zeroize sensitive information.
++	   */
++	  MD5_memset ((POINTER)context, 0, sizeof (*context));
++  }
++}
++
++/* MD5 basic transformation. Transforms state based on block.
++ */
++static void MD5Transform (state, block)
++UINT4 state[4];
++unsigned char block[64];
++{
++  UINT4 a = state[0], b = state[1], c = state[2], d = state[3], x[16];
++
++  Decode (x, block, 64);
++
++  /* Round 1 */
++  FF (a, b, c, d, x[ 0], S11, 0xd76aa478); /* 1 */
++  FF (d, a, b, c, x[ 1], S12, 0xe8c7b756); /* 2 */
++  FF (c, d, a, b, x[ 2], S13, 0x242070db); /* 3 */
++  FF (b, c, d, a, x[ 3], S14, 0xc1bdceee); /* 4 */
++  FF (a, b, c, d, x[ 4], S11, 0xf57c0faf); /* 5 */
++  FF (d, a, b, c, x[ 5], S12, 0x4787c62a); /* 6 */
++  FF (c, d, a, b, x[ 6], S13, 0xa8304613); /* 7 */
++  FF (b, c, d, a, x[ 7], S14, 0xfd469501); /* 8 */
++  FF (a, b, c, d, x[ 8], S11, 0x698098d8); /* 9 */
++  FF (d, a, b, c, x[ 9], S12, 0x8b44f7af); /* 10 */
++  FF (c, d, a, b, x[10], S13, 0xffff5bb1); /* 11 */
++  FF (b, c, d, a, x[11], S14, 0x895cd7be); /* 12 */
++  FF (a, b, c, d, x[12], S11, 0x6b901122); /* 13 */
++  FF (d, a, b, c, x[13], S12, 0xfd987193); /* 14 */
++  FF (c, d, a, b, x[14], S13, 0xa679438e); /* 15 */
++  FF (b, c, d, a, x[15], S14, 0x49b40821); /* 16 */
++
++ /* Round 2 */
++  GG (a, b, c, d, x[ 1], S21, 0xf61e2562); /* 17 */
++  GG (d, a, b, c, x[ 6], S22, 0xc040b340); /* 18 */
++  GG (c, d, a, b, x[11], S23, 0x265e5a51); /* 19 */
++  GG (b, c, d, a, x[ 0], S24, 0xe9b6c7aa); /* 20 */
++  GG (a, b, c, d, x[ 5], S21, 0xd62f105d); /* 21 */
++  GG (d, a, b, c, x[10], S22,  0x2441453); /* 22 */
++  GG (c, d, a, b, x[15], S23, 0xd8a1e681); /* 23 */
++  GG (b, c, d, a, x[ 4], S24, 0xe7d3fbc8); /* 24 */
++  GG (a, b, c, d, x[ 9], S21, 0x21e1cde6); /* 25 */
++  GG (d, a, b, c, x[14], S22, 0xc33707d6); /* 26 */
++  GG (c, d, a, b, x[ 3], S23, 0xf4d50d87); /* 27 */
++  GG (b, c, d, a, x[ 8], S24, 0x455a14ed); /* 28 */
++  GG (a, b, c, d, x[13], S21, 0xa9e3e905); /* 29 */
++  GG (d, a, b, c, x[ 2], S22, 0xfcefa3f8); /* 30 */
++  GG (c, d, a, b, x[ 7], S23, 0x676f02d9); /* 31 */
++  GG (b, c, d, a, x[12], S24, 0x8d2a4c8a); /* 32 */
++
++  /* Round 3 */
++  HH (a, b, c, d, x[ 5], S31, 0xfffa3942); /* 33 */
++  HH (d, a, b, c, x[ 8], S32, 0x8771f681); /* 34 */
++  HH (c, d, a, b, x[11], S33, 0x6d9d6122); /* 35 */
++  HH (b, c, d, a, x[14], S34, 0xfde5380c); /* 36 */
++  HH (a, b, c, d, x[ 1], S31, 0xa4beea44); /* 37 */
++  HH (d, a, b, c, x[ 4], S32, 0x4bdecfa9); /* 38 */
++  HH (c, d, a, b, x[ 7], S33, 0xf6bb4b60); /* 39 */
++  HH (b, c, d, a, x[10], S34, 0xbebfbc70); /* 40 */
++  HH (a, b, c, d, x[13], S31, 0x289b7ec6); /* 41 */
++  HH (d, a, b, c, x[ 0], S32, 0xeaa127fa); /* 42 */
++  HH (c, d, a, b, x[ 3], S33, 0xd4ef3085); /* 43 */
++  HH (b, c, d, a, x[ 6], S34,  0x4881d05); /* 44 */
++  HH (a, b, c, d, x[ 9], S31, 0xd9d4d039); /* 45 */
++  HH (d, a, b, c, x[12], S32, 0xe6db99e5); /* 46 */
++  HH (c, d, a, b, x[15], S33, 0x1fa27cf8); /* 47 */
++  HH (b, c, d, a, x[ 2], S34, 0xc4ac5665); /* 48 */
++
++  /* Round 4 */
++  II (a, b, c, d, x[ 0], S41, 0xf4292244); /* 49 */
++  II (d, a, b, c, x[ 7], S42, 0x432aff97); /* 50 */
++  II (c, d, a, b, x[14], S43, 0xab9423a7); /* 51 */
++  II (b, c, d, a, x[ 5], S44, 0xfc93a039); /* 52 */
++  II (a, b, c, d, x[12], S41, 0x655b59c3); /* 53 */
++  II (d, a, b, c, x[ 3], S42, 0x8f0ccc92); /* 54 */
++  II (c, d, a, b, x[10], S43, 0xffeff47d); /* 55 */
++  II (b, c, d, a, x[ 1], S44, 0x85845dd1); /* 56 */
++  II (a, b, c, d, x[ 8], S41, 0x6fa87e4f); /* 57 */
++  II (d, a, b, c, x[15], S42, 0xfe2ce6e0); /* 58 */
++  II (c, d, a, b, x[ 6], S43, 0xa3014314); /* 59 */
++  II (b, c, d, a, x[13], S44, 0x4e0811a1); /* 60 */
++  II (a, b, c, d, x[ 4], S41, 0xf7537e82); /* 61 */
++  II (d, a, b, c, x[11], S42, 0xbd3af235); /* 62 */
++  II (c, d, a, b, x[ 2], S43, 0x2ad7d2bb); /* 63 */
++  II (b, c, d, a, x[ 9], S44, 0xeb86d391); /* 64 */
++
++  state[0] += a;
++  state[1] += b;
++  state[2] += c;
++  state[3] += d;
++
++  /* Zeroize sensitive information.
++*/
++  MD5_memset ((POINTER)x, 0, sizeof (x));
++}
++
++#if __BIG_ENDIAN
++
++/* Encodes input (UINT4) into output (unsigned char). Assumes len is
++  a multiple of 4.
++ */
++static void Encode (output, input, len)
++unsigned char *output;
++UINT4 *input;
++unsigned int len;
++{
++  unsigned int i, j;
++
++  for (i = 0, j = 0; j < len; i++, j += 4) {
++ output[j] = (unsigned char)(input[i] & 0xff);
++ output[j+1] = (unsigned char)((input[i] >> 8) & 0xff);
++ output[j+2] = (unsigned char)((input[i] >> 16) & 0xff);
++ output[j+3] = (unsigned char)((input[i] >> 24) & 0xff);
++  }
++}
++
++/* Decodes input (unsigned char) into output (UINT4). Assumes len is
++  a multiple of 4.
++ */
++static void Decode (output, input, len)
++UINT4 *output;
++unsigned char *input;
++unsigned int len;
++{
++  unsigned int i, j;
++
++  for (i = 0, j = 0; j < len; i++, j += 4)
++ output[i] = ((UINT4)input[j]) | (((UINT4)input[j+1]) << 8) |
++   (((UINT4)input[j+2]) << 16) | (((UINT4)input[j+3]) << 24);
++}
++
++#endif
++
++#ifndef HAVEMEMCOPY
++#ifndef HAVEBCOPY
++/* Note: Replace "for loop" with standard memcpy if possible.
++ */
++
++static void MD5_memcpy (output, input, len)
++POINTER output;
++POINTER input;
++unsigned int len;
++{
++  unsigned int i;
++
++  for (i = 0; i < len; i++)
++
++ ((char *)output)[i] = ((char *)input)[i];
++}
++
++/* Note: Replace "for loop" with standard memset if possible.
++ */
++static void MD5_memset (output, value, len)
++POINTER output;
++int value;
++unsigned int len;
++{
++  unsigned int i;
++
++  for (i = 0; i < len; i++)
++ ((char *)output)[i] = (char)value;
++}
++#endif
++#endif
++	
+diff -ruN linux-2.4.26/net/ipv4/Config.in linux-2.4.26-md5/net/ipv4/Config.in
+--- linux-2.4.26/net/ipv4/Config.in	2003-11-28 10:26:21.000000000 -0800
++++ linux-2.4.26-md5/net/ipv4/Config.in	2004-04-21 13:50:57.000000000 -0700
+@@ -40,6 +40,7 @@
+ fi
+ bool '  IP: TCP Explicit Congestion Notification support' CONFIG_INET_ECN
+ bool '  IP: TCP syncookie support (disabled per default)' CONFIG_SYN_COOKIES
++bool '  IP: TCP RFC2385 MD5 Support' CONFIG_TCP_MD5_AUTH
+ if [ "$CONFIG_NETFILTER" != "n" ]; then
+    source net/ipv4/netfilter/Config.in
+ fi
+diff -ruN linux-2.4.26/net/ipv4/tcp.c linux-2.4.26-md5/net/ipv4/tcp.c
+--- linux-2.4.26/net/ipv4/tcp.c	2004-02-18 05:36:32.000000000 -0800
++++ linux-2.4.26-md5/net/ipv4/tcp.c	2004-04-21 13:50:57.000000000 -0700
+@@ -2394,6 +2394,13 @@
+ 		}
+ 		break;
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	case TCP_MD5_AUTH:
++		/* Read the IP->Key mappings from usermode */
++		err = tcp_v4_parse_md5_keys (sk, optval, optlen);
++		break;
++#endif
++
+ 	default:
+ 		err = -ENOPROTOOPT;
+ 		break;
+diff -ruN linux-2.4.26/net/ipv4/tcp_input.c linux-2.4.26-md5/net/ipv4/tcp_input.c
+--- linux-2.4.26/net/ipv4/tcp_input.c	2004-04-14 06:05:41.000000000 -0700
++++ linux-2.4.26-md5/net/ipv4/tcp_input.c	2004-04-21 13:50:57.000000000 -0700
+@@ -2364,6 +2364,10 @@
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++#include <linux/tcp_md5.h>
++#endif
++
+ 
+ /* Look for tcp options. Normally only called on SYN and SYNACK packets.
+  * But, this can also be called on packets in the established flow when
+@@ -2444,6 +2448,14 @@
+ 					   tp->sack_ok) {
+ 						TCP_SKB_CB(skb)->sacked = (ptr - 2) - (unsigned char *)th;
+ 					}
++
++#ifdef CONFIG_TCP_MD5_AUTH
++				case TCPOPT_MD5_AUTH:
++					/* The MD5 Hash has already been checked
++					 * (see tcp_v4_do_rcv)
++					 */
++					break;
++#endif
+ 	  			};
+ 	  			ptr+=opsize-2;
+ 	  			length-=opsize;
+diff -ruN linux-2.4.26/net/ipv4/tcp_ipv4.c linux-2.4.26-md5/net/ipv4/tcp_ipv4.c
+--- linux-2.4.26/net/ipv4/tcp_ipv4.c	2004-04-14 06:05:41.000000000 -0700
++++ linux-2.4.26-md5/net/ipv4/tcp_ipv4.c	2004-04-21 13:54:50.000000000 -0700
+@@ -68,6 +68,9 @@
+ #include <linux/stddef.h>
+ #include <linux/ipsec.h>
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++#include <linux/md5k.h>
++#endif
+ extern int sysctl_ip_dynaddr;
+ extern int sysctl_ip_default_ttl;
+ int sysctl_tcp_tw_reuse = 0;
+@@ -83,6 +86,11 @@
+ void tcp_v4_send_check(struct sock *sk, struct tcphdr *th, int len, 
+ 		       struct sk_buff *skb);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++static void tcp_v4_clear_md5_list (struct sock *sk);
++static int tcp_v4_inbound_md5_hash (struct sock *sk, struct sk_buff *skb);
++#endif
++
+ /*
+  * ALL members must be initialised to prevent gcc-2.7.2.3 miscompilation
+  */
+@@ -805,7 +813,7 @@
+ 	sk->rcv_saddr = sk->saddr;
+ 
+ 	if (tp->ts_recent_stamp && sk->daddr != daddr) {
+-		/* Reset inherited state */
++		/* Resetinherited state */
+ 		tp->ts_recent = 0;
+ 		tp->ts_recent_stamp = 0;
+ 		tp->write_seq = 0;
+@@ -1155,11 +1163,19 @@
+  *	Exception: precedence violation. We do not implement it in any case.
+  */
+ 
+-static void tcp_v4_send_reset(struct sk_buff *skb)
++/* Okay, so we do need the sock structure, to add teh MD5 key if applicable */
++static void tcp_v4_send_reset(struct sock *sk, struct sk_buff *skb)
+ {
+ 	struct tcphdr *th = skb->h.th;
+-	struct tcphdr rth;
++	struct {
++		struct tcphdr th;
++		/* Make room for Timestamp option and possible MD5 Hash */
++		u32 tsopt[(TCPOLEN_MD5_AUTH_ALIGNED >> 2)];
++	} rep;
+ 	struct ip_reply_arg arg;
++#ifdef CONFIG_TCP_MD5_AUTH
++	struct tcp_rfc2385 *key;
++#endif
+ 
+ 	/* Never send a reset in response to a reset. */
+ 	if (th->rst)
+@@ -1169,23 +1185,51 @@
+ 		return;
+ 
+ 	/* Swap the send and the receive. */
+-	memset(&rth, 0, sizeof(struct tcphdr)); 
+-	rth.dest = th->source;
+-	rth.source = th->dest; 
+-	rth.doff = sizeof(struct tcphdr)/4;
+-	rth.rst = 1;
++	memset(&rep, 0, sizeof(rep)); 
++	rep.th.dest = th->source;
++	rep.th.source = th->dest; 
++	rep.th.doff = sizeof(struct tcphdr)/4;
++	rep.th.rst = 1;
+ 
+ 	if (th->ack) {
+-		rth.seq = th->ack_seq;
++		rep.th.seq = th->ack_seq;
+ 	} else {
+-		rth.ack = 1;
+-		rth.ack_seq = htonl(ntohl(th->seq) + th->syn + th->fin
+-				    + skb->len - (th->doff<<2));
++		rep.th.ack = 1;
++		rep.th.ack_seq = htonl(ntohl(th->seq) + th->syn + th->fin
++				       + skb->len - (th->doff<<2));
+ 	}
+ 
+ 	memset(&arg, 0, sizeof arg); 
+-	arg.iov[0].iov_base = (unsigned char *)&rth; 
+-	arg.iov[0].iov_len  = sizeof rth;
++	arg.iov[0].iov_base = (unsigned char *)&rep; 
++	arg.iov[0].iov_len  = sizeof (struct tcphdr);
++
++#ifdef CONFIG_TCP_MD5_AUTH
++	if (sk) {
++		key = tcp_v4_md5_lookup (sk, skb->nh.iph->daddr);
++	} else {
++		key = NULL;
++	}
++
++	if (key) {
++		int offset = 0;
++
++		rep.tsopt[offset++] = __constant_htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
++						       (TCPOPT_MD5_AUTH << 8) | 18);
++
++		/* Update length, and the length the header thinks exists */
++		arg.iov[0].iov_len += TCPOLEN_MD5_AUTH_ALIGNED;
++		rep.th.doff = arg.iov[0].iov_len/4;
++
++		tcp_v4_calc_md5_hash ((__u8 *)&rep.tsopt[offset],
++				      key,
++				      skb->nh.iph->daddr,
++				      skb->nh.iph->saddr,
++				      &rep.th, IPPROTO_TCP,
++				      arg.iov[0].iov_len);
++	}
++#endif
++
++
+ 	arg.csum = csum_tcpudp_nofold(skb->nh.iph->daddr, 
+ 				      skb->nh.iph->saddr, /*XXX*/
+ 				      sizeof(struct tcphdr),
+@@ -1195,7 +1239,7 @@
+ 	arg.csumoffset = offsetof(struct tcphdr, check) / 2; 
+ 
+ 	tcp_socket->sk->protinfo.af_inet.ttl = sysctl_ip_default_ttl;
+-	ip_send_reply(tcp_socket->sk, skb, &arg, sizeof rth);
++	ip_send_reply(tcp_socket->sk, skb, &arg, arg.iov[0].iov_len);
+ 
+ 	TCP_INC_STATS_BH(TcpOutSegs);
+ 	TCP_INC_STATS_BH(TcpOutRsts);
+@@ -1205,14 +1249,19 @@
+    outside socket context is ugly, certainly. What can I do?
+  */
+ 
+-static void tcp_v4_send_ack(struct sk_buff *skb, u32 seq, u32 ack, u32 win, u32 ts)
++static void tcp_v4_send_ack(struct tcp_tw_bucket *tw, struct sk_buff *skb, u32 seq, u32 ack, u32 win, u32 ts)
+ {
+ 	struct tcphdr *th = skb->h.th;
+ 	struct {
+ 		struct tcphdr th;
+-		u32 tsopt[3];
++		/* Make room for Timestamp option and possible MD5 Hash */
++		u32 tsopt[3 + (TCPOLEN_MD5_AUTH_ALIGNED >> 2)];
+ 	} rep;
+ 	struct ip_reply_arg arg;
++#ifdef CONFIG_TCP_MD5_AUTH
++	struct tcp_rfc2385 *key;
++	struct tcp_rfc2385 tw_key;
++#endif
+ 
+ 	memset(&rep.th, 0, sizeof(struct tcphdr));
+ 	memset(&arg, 0, sizeof arg);
+@@ -1227,7 +1276,7 @@
+ 				     TCPOLEN_TIMESTAMP);
+ 		rep.tsopt[1] = htonl(tcp_time_stamp);
+ 		rep.tsopt[2] = htonl(ts);
+-		arg.iov[0].iov_len = sizeof(rep);
++		arg.iov[0].iov_len += (3 << 2);
+ 	}
+ 
+ 	/* Swap the send and the receive. */
+@@ -1239,6 +1288,43 @@
+ 	rep.th.ack = 1;
+ 	rep.th.window = htons(win);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* The SKB holds an incoming packet, but may NOT have a valid ->sk pointer.
++	 * This is especially teh case when we're dealign with a TIME_WAIT ack, because
++	 * the sk structure is long gone, and only the tcp_tw_bucket remains.
++	 * So the md5 key is stashed in that structure, and we use it in preference.
++	 * I believe that (tw || skb->sk) holds true, but we program defensively.
++	 */
++
++	if (!tw && skb->sk) {
++		key = tcp_v4_md5_lookup (skb->sk, skb->nh.iph->daddr);
++	} else if (tw && tw->md5_key) {
++		tw_key.key = tw->md5_key;
++		tw_key.keylen = tw->md5_keylen;
++		key = &tw_key;
++	} else {
++		key = NULL;
++	}
++
++	if (key) {
++		int offset = (ts) ? 3 : 0;
++
++		rep.tsopt[offset++] = __constant_htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
++						       (TCPOPT_MD5_AUTH << 8) | 18);
++
++		/* Update length, and the length the header thinks exists */
++		arg.iov[0].iov_len += TCPOLEN_MD5_AUTH_ALIGNED;
++		rep.th.doff = arg.iov[0].iov_len/4;
++
++		tcp_v4_calc_md5_hash ((__u8 *)&rep.tsopt[offset],
++				      key,
++				      skb->nh.iph->daddr,
++				      skb->nh.iph->saddr,
++				      &rep.th, IPPROTO_TCP,
++				      arg.iov[0].iov_len);
++	}
++#endif
++
+ 	arg.csum = csum_tcpudp_nofold(skb->nh.iph->daddr, 
+ 				      skb->nh.iph->saddr, /*XXX*/
+ 				      arg.iov[0].iov_len,
+@@ -1255,7 +1341,7 @@
+ {
+ 	struct tcp_tw_bucket *tw = (struct tcp_tw_bucket *)sk;
+ 
+-	tcp_v4_send_ack(skb, tw->snd_nxt, tw->rcv_nxt,
++	tcp_v4_send_ack(tw, skb, tw->snd_nxt, tw->rcv_nxt,
+ 			tw->rcv_wnd>>tw->rcv_wscale, tw->ts_recent);
+ 
+ 	tcp_tw_put(tw);
+@@ -1263,7 +1349,7 @@
+ 
+ static void tcp_v4_or_send_ack(struct sk_buff *skb, struct open_request *req)
+ {
+-	tcp_v4_send_ack(skb, req->snt_isn+1, req->rcv_isn+1, req->rcv_wnd,
++	tcp_v4_send_ack(NULL, skb, req->snt_isn+1, req->rcv_isn+1, req->rcv_wnd,
+ 			req->ts_recent);
+ }
+ 
+@@ -1439,6 +1525,10 @@
+ 	tp.mss_clamp = 536;
+ 	tp.user_mss = sk->tp_pinfo.af_tcp.user_mss;
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	tp.md5_db_entries = 0;
++#endif
++
+ 	tcp_parse_options(skb, &tp, 0);
+ 
+ 	if (want_cookie) {
+@@ -1540,6 +1630,8 @@
+  * The three way handshake has completed - we got a valid synack - 
+  * now create the new socket. 
+  */
++ 
++
+ struct sock * tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+ 				   struct open_request *req,
+ 				   struct dst_entry *dst)
+@@ -1578,6 +1670,28 @@
+ 	newtp->advmss = dst->advmss;
+ 	tcp_initialize_rcv_mss(newsk);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* Copy over the MD5 key from the original socket */
++	{
++		struct tcp_rfc2385 *key;
++		
++		if ((key = tcp_v4_md5_lookup (sk, sk->daddr))) {
++			/* We're using one, so create a matching key
++			 * on the newsk structure. If we fail to get
++			 * memory, then we end up not copying the key
++			 * across. Shucks.
++			 */
++			char *newkey = kmalloc (key->keylen, GFP_ATOMIC);
++			if (newkey) {
++				memcpy (newkey, key->key, key->keylen);
++				tcp_v4_md5_do_add (newsk, sk->daddr,
++						   newkey, key->keylen);
++			}
++		}
++	}
++
++#endif
++
+ 	__tcp_v4_hash(newsk, 0);
+ 	__tcp_inherit_port(sk, newsk);
+ 
+@@ -1663,12 +1777,28 @@
+  */
+ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
+ {
++#ifdef CONFIG_TCP_MD5_AUTH
++	struct sock *rsk = NULL;
++#endif
++
+   	IP_INC_STATS_BH(IpInDelivers);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* We really want to reject the packet as early as possible
++	 * if:
++	 *   o We're expecting an MD5'd packet, and there is no MD5 TCP option
++	 *   o There is an MD5 option, and we're not expecting one.
++	 */
++	if (tcp_v4_inbound_md5_hash (sk, skb))
++		goto discard;
++#endif
++
+ 	if (sk->state == TCP_ESTABLISHED) { /* Fast path */
+ 		TCP_CHECK_TIMER(sk);
+-		if (tcp_rcv_established(sk, skb, skb->h.th, skb->len))
++		if (tcp_rcv_established(sk, skb, skb->h.th, skb->len)) {
++			rsk = sk;
+ 			goto reset;
++		}
+ 		TCP_CHECK_TIMER(sk);
+ 		return 0; 
+ 	}
+@@ -1682,20 +1812,24 @@
+ 			goto discard;
+ 
+ 		if (nsk != sk) {
+-			if (tcp_child_process(sk, nsk, skb))
++			if (tcp_child_process(sk, nsk, skb)) {
++				rsk = nsk;
+ 				goto reset;
++			}
+ 			return 0;
+ 		}
+ 	}
+ 
+ 	TCP_CHECK_TIMER(sk);
+-	if (tcp_rcv_state_process(sk, skb, skb->h.th, skb->len))
++	if (tcp_rcv_state_process(sk, skb, skb->h.th, skb->len)) {
++		rsk = sk;
+ 		goto reset;
++	}
+ 	TCP_CHECK_TIMER(sk);
+ 	return 0;
+ 
+ reset:
+-	tcp_v4_send_reset(skb);
++	tcp_v4_send_reset(rsk, skb);
+ discard:
+ 	kfree_skb(skb);
+ 	/* Be careful here. If this function gets more complicated and
+@@ -1789,7 +1923,7 @@
+ bad_packet:
+ 		TCP_INC_STATS_BH(TcpInErrs);
+ 	} else {
+-		tcp_v4_send_reset(skb);
++		tcp_v4_send_reset(NULL, skb);
+ 	}
+ 
+ discard_it:
+@@ -2045,6 +2179,11 @@
+ 	sk->sndbuf = sysctl_tcp_wmem[1];
+ 	sk->rcvbuf = sysctl_tcp_rmem[1];
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	tp->md5_db_entries = 0;
++	tp->md5_db = NULL;
++#endif
++
+ 	atomic_inc(&tcp_sockets_allocated);
+ 
+ 	return 0;
+@@ -2059,6 +2198,10 @@
+ 	/* Cleanup up the write buffer. */
+   	tcp_writequeue_purge(sk);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* Clean up the MD5 key list */
++	tcp_v4_clear_md5_list (sk);
++#endif
+ 	/* Cleans up our, hopefully empty, out_of_order_queue. */
+   	__skb_queue_purge(&tp->out_of_order_queue);
+ 
+@@ -2078,6 +2221,334 @@
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++/* RFC2385 MD5 checksumming requires a mapping of
++ * IP address->MD5 Key.
++ * We need to maintain these in the sk structure.
++ */
++
++struct tcp_rfc2385 *tcp_v4_md5_lookup (struct sock *sk, __u32 addr)
++{
++	/* Find the Key structure for an address */
++	int i;
++	struct tcp_opt *tp = &(sk->tp_pinfo.af_tcp);
++
++	if (tp->md5_db_entries == 0)
++		return NULL;
++
++	for (i = 0; i < tp->md5_db_entries; i++) {
++		if (tp->md5_db[i].addr == addr) {
++			return &tp->md5_db[i];
++		}
++	}
++	return NULL;
++}
++
++static int tcp_v4_md5_add (struct sock *sk, struct tcp_rfc2385_cmd *cmd)
++{
++	unsigned char *newkey;
++
++	/* Was a key already defined for this address?
++	 * if so, change it.
++	 * Note, GFP_KERNEL is acceptable here.
++	 */
++	newkey = kmalloc (cmd->keylen, GFP_KERNEL);
++	if (newkey) {
++		if (copy_from_user (newkey, cmd->key, cmd->keylen)) {
++			/* Failed to copy the key over, so -EFAULT */
++			printk ("Failed to copy key from userland");
++			return -EFAULT;
++		}
++	} else {
++		return -ENOMEM;
++	}
++
++	return tcp_v4_md5_do_add (sk, cmd->address, newkey, cmd->keylen);
++
++	return 0;
++}
++
++/* This can be called on a newly created socket, from other files */
++int tcp_v4_md5_do_add (struct sock *sk, __u32 addr, char *newkey, __u8 newkeylen)
++{
++	/* Add Key to the list */
++	struct tcp_rfc2385 *key;
++	struct tcp_opt *tp = &(sk->tp_pinfo.af_tcp);
++	struct tcp_rfc2385 *keys;
++
++	key = tcp_v4_md5_lookup (sk, addr);
++	if (key) {
++		/* Pre-existing entry - just update that one. */
++		kfree (key->key);
++		key->key = newkey;
++		key->keylen = newkeylen;
++	} else {
++		/* Use ATOMIC, 'cos this can be called from deep inside the tcp code */
++		keys = kmalloc (sizeof (struct tcp_rfc2385) * (tp->md5_db_entries + 1),
++				GFP_ATOMIC);
++		if (! keys)
++			return -ENOMEM;
++		
++		if (tp->md5_db_entries)
++			memcpy (keys, tp->md5_db, sizeof (struct tcp_rfc2385) * tp->md5_db_entries);
++	
++		/* Free old key list, and reference new one */
++		kfree (tp->md5_db);
++		tp->md5_db = keys;
++		tp->md5_db_entries++;
++		tp->md5_db[tp->md5_db_entries - 1].addr = addr;
++		tp->md5_db[tp->md5_db_entries - 1].key = newkey;
++		tp->md5_db[tp->md5_db_entries - 1].keylen = newkeylen;
++	}
++
++	return 0;
++}
++
++static int tcp_v4_md5_del (struct sock *sk, struct tcp_rfc2385_cmd *cmd)
++{
++	int i;
++	struct tcp_opt *tp = &(sk->tp_pinfo.af_tcp);
++
++	for (i = 0; i < tp->md5_db_entries; i++) {
++		if (tp->md5_db[i].addr == cmd->address) {
++			/* Free the key */
++			kfree (tp->md5_db[i].key);
++			tp->md5_db_entries--;
++
++			if (tp->md5_db_entries == 0) {
++				/* Now the DB */
++				kfree (tp->md5_db);
++				tp->md5_db = NULL;
++				return 0;
++			} else {
++				/* Need to do some manipulation */
++				if (tp->md5_db_entries != i)
++					memcpy (&tp->md5_db[i],
++						&tp->md5_db[i+1],
++						(tp->md5_db_entries - i)
++						* sizeof (struct tcp_rfc2385));
++			}
++
++		}
++	}
++	return -ENOENT;
++}
++
++int tcp_v4_parse_md5_keys (struct sock *sk, char *optval, int optlen)
++{
++  struct tcp_rfc2385_cmd cmd;
++
++  if (optlen != sizeof(cmd))
++	  return -ENOSPC;
++
++  if (copy_from_user (&cmd, optval, sizeof (cmd))) {
++	  printk ("Failed to copy command structure from userland");
++	  return -EFAULT;
++  }
++
++  switch (cmd.command) {
++  case TCP_MD5_AUTH_ADD:
++	  return tcp_v4_md5_add (sk, &cmd);
++
++  case TCP_MD5_AUTH_DEL:
++	  return tcp_v4_md5_del (sk, &cmd);
++
++  default:
++	  return -ENOENT;
++  }
++
++  return 0;
++}
++
++void tcp_v4_calc_md5_hash (char *md5_hash, struct tcp_rfc2385 *key,
++			   __u32 saddr, __u32 daddr,
++			   struct tcphdr *th, int protocol,
++			   int tcplen)
++{
++	MD5_CTX ctx;
++	__u16 data_len;
++#ifdef MD5_DEBUG
++	int i;
++#endif
++	__u16 old_checksum;
++	/* A structure to simplify the md5-ing */
++	struct {
++		__u32 saddr;
++		__u32 daddr;
++		__u8 pad;
++		__u8 protocol;
++		__u16 len;
++	} md5_block;
++	
++	/* Okay, so RFC2385 is turned on for this connection,
++	 * so we need to generate the MD5 hash for the packet now.
++	 */
++	MD5Init (&ctx);
++	
++	/* 1. the TCP pseudo-header (in the order: source IP address,
++	 * destination IP address, zero-padded protocol number, and
++	 * segment length)
++	 */
++	md5_block.saddr = saddr;
++	md5_block.daddr = daddr;
++	md5_block.pad = 0;
++	md5_block.protocol = protocol;
++	md5_block.len = htons(tcplen);
++	MD5Update (&ctx, (unsigned char *)&md5_block, sizeof (md5_block));
++
++#ifdef MD5_DEBUG
++ 	for (i = 0; i < sizeof (md5_block); i++)
++		printk ("%x ", ((unsigned char *)&md5_block)[i]);
++#endif
++	
++	/* 2. the TCP header, excluding options, and assuming a
++	 * checksum of zero
++	 */
++	old_checksum = th->check;
++	th->check = 0;
++	MD5Update (&ctx, (void *)th, sizeof (struct tcphdr));
++#ifdef MD5_DEBUG
++	for (i = 0; i < sizeof (struct tcphdr); i++)
++		printk ("%x ", ((unsigned char *)th)[i]);
++#endif
++	th->check = old_checksum;
++
++	/* 3. the TCP segment data (if any) */
++	data_len = tcplen - (th->doff << 2);
++	if (data_len > 0) {
++		unsigned char *data = (unsigned char *)th + (th->doff << 2);
++		
++		MD5Update (&ctx, data, data_len);
++	}
++	
++	/* 4. an independently-specified key or password, known to both
++	 * TCPs and presumably connection-specific
++	 */
++	MD5Update (&ctx, key->key, key->keylen);
++
++#ifdef MD5_DEBUG
++	printk ("and password: ");
++	for (i = 0; i < key->keylen; i++)
++		printk ("%x ", (unsigned char *)key->key[i]);
++#endif
++	
++	/* Now store the Hash into the packet */
++	MD5Final (md5_hash, &ctx);
++}
++
++static int tcp_v4_inbound_md5_hash (struct sock *sk, struct sk_buff *skb)
++{
++	/* This gets called for each TCP segment that arrives
++	 * so we want to be efficient.
++	 * We have 3 drop cases:
++	 * o No MD5 hash and one expected.
++	 * o MD5 hash and we're not expecting one.
++	 * o MD5 hash and its wrong.
++	 */
++	__u8 *hash_location = NULL;
++	struct tcp_rfc2385 *hash_expected;
++	struct iphdr *iph = skb->nh.iph;
++	struct tcphdr *th = skb->h.th;
++	int length = (th->doff << 2) - sizeof (struct tcphdr);
++	unsigned char *ptr;
++	unsigned char newhash[16];
++
++	hash_expected = tcp_v4_md5_lookup (sk, iph->saddr);
++
++	/* If the TCP option length is less than the TCP_MD5_AUTH
++	 * option length, then we can shortcut
++	 */
++	if (length < TCPOLEN_MD5_AUTH) {
++		if (hash_expected)
++			return 1;
++		else
++			return 0;
++	}
++
++	/* Okay, we can't shortcut - we have to grub through the options */
++	ptr = (unsigned char *)(th + 1);
++	while (length > 0) {
++		int opcode = *ptr++;
++		int opsize;
++
++		switch (opcode) {
++		case TCPOPT_EOL:
++			goto done_opts;
++		case TCPOPT_NOP:
++			length--;
++			continue;
++		default:
++			opsize = *ptr++;
++			if (opsize < 2)
++				goto done_opts;
++			if (opsize > length)
++				goto done_opts;
++			
++			if (opcode == TCPOPT_MD5_AUTH) {
++				hash_location = ptr;
++				goto done_opts;
++			}
++			
++		}
++		ptr += opsize-2;
++		length-=opsize;
++	}
++
++ done_opts:
++	/* We've parsed the options - do we have a hash? */
++	if (!hash_expected && !hash_location)
++		return 0;
++
++	if (hash_expected && !hash_location) {
++		printk (KERN_INFO "MD5 Hash expected but NOT found (%d.%d.%d.%d, %d)->(%d.%d.%d.%d, %d)\n",
++			NIPQUAD (iph->saddr), ntohs(th->source),
++			NIPQUAD (iph->daddr), ntohs(th->dest));
++		return 1;
++	}
++
++	if (!hash_expected && hash_location) {
++		printk (KERN_INFO "MD5 Hash NOT expected but found (%d.%d.%d.%d, %d)->(%d.%d.%d.%d, %d)\n",
++			NIPQUAD (iph->saddr), ntohs(th->source),
++			NIPQUAD (iph->daddr), ntohs(th->dest));
++		return 1;
++	}
++
++	/* Okay, so this is hash_expected and hash_location - 
++	 * so we need to calculate the checksum.
++	 */
++	tcp_v4_calc_md5_hash (newhash,
++			      hash_expected,
++			      iph->saddr, iph->daddr,
++			      th, sk->protocol,
++			      skb->len);
++	if (memcmp (hash_location, newhash, 16) != 0) {
++		printk (KERN_INFO "MD5 Hash failed for (%d.%d.%d.%d, %d)->(%d.%d.%d.%d, %d)\n",
++			NIPQUAD (iph->saddr), ntohs(th->source),
++			NIPQUAD (iph->daddr), ntohs(th->dest));
++		return 1;
++	}
++
++	return 0;
++}
++
++static void tcp_v4_clear_md5_list (struct sock *sk)
++{
++	int i;
++	struct tcp_opt *tp = &(sk->tp_pinfo.af_tcp);
++
++	if (tp->md5_db_entries == 0)
++		return;
++
++	for (i = 0; i < tp->md5_db_entries; i++)
++		kfree (tp->md5_db[i].key);
++
++	kfree (tp->md5_db);
++        tp->md5_db = NULL;
++	tp->md5_db_entries = 0;
++}
++#endif
++
++
+ /* Proc filesystem TCP sock list dumping. */
+ static void get_openreq(struct sock *sk, struct open_request *req, char *tmpbuf, int i, int uid)
+ {
+diff -ruN linux-2.4.26/net/ipv4/tcp_minisocks.c linux-2.4.26-md5/net/ipv4/tcp_minisocks.c
+--- linux-2.4.26/net/ipv4/tcp_minisocks.c	2003-08-25 04:44:44.000000000 -0700
++++ linux-2.4.26-md5/net/ipv4/tcp_minisocks.c	2004-04-21 13:50:57.000000000 -0700
+@@ -390,6 +390,28 @@
+ 			       sizeof(struct in6_addr));
+ 		}
+ #endif
++
++#ifdef CONFIG_TCP_MD5_AUTH
++		/* The timewait bucket does not have the key DB from the
++		 * sock structure. We just make a quick copy of the
++		 * md5 key being used (if indeed we are using one)
++		 * so the timewait ack generating code has the key.
++		 */
++		{
++			struct tcp_rfc2385 *key;
++			
++			tw->md5_key = NULL;
++			tw->md5_keylen  = 0;
++			if ((key = tcp_v4_md5_lookup (sk, sk->daddr))) {
++				char *newkey = kmalloc (key->keylen, GFP_ATOMIC);
++				if (newkey) {
++					memcpy (newkey, key->key, key->keylen);
++					tw->md5_key = newkey;
++					tw->md5_keylen = key->keylen;
++				}
++			}
++		}
++#endif
+ 		/* Linkage updates. */
+ 		__tcp_tw_hashdance(sk, tw);
+ 
+@@ -742,6 +764,11 @@
+ 		/* Deinitialize syn_wait_lock to trap illegal accesses. */
+ 		memset(&newtp->syn_wait_lock, 0, sizeof(newtp->syn_wait_lock));
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++		newtp->md5_db = NULL;
++		newtp->md5_db_entries = 0;
++#endif
++
+ 		/* Back to base struct sock members. */
+ 		newsk->err = 0;
+ 		newsk->priority = 0;
+@@ -783,6 +810,12 @@
+ 			newtp->ts_recent_stamp = 0;
+ 			newtp->tcp_header_len = sizeof(struct tcphdr);
+ 		}
++
++#ifdef CONFIG_TCP_MD5_AUTH
++		if (tcp_v4_md5_lookup (sk, sk->daddr))
++		    	newtp->tcp_header_len += TCPOLEN_MD5_AUTH_ALIGNED;
++#endif
++
+ 		if (skb->len >= TCP_MIN_RCVMSS+newtp->tcp_header_len)
+ 			newtp->ack.last_seg_size = skb->len-newtp->tcp_header_len;
+ 		newtp->mss_clamp = req->mss;
+@@ -962,6 +995,27 @@
+ 	if (child == NULL)
+ 		goto listen_overflow;
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* Copy over the MD5 key from the original socket */
++	{
++		struct tcp_rfc2385 *key;
++		
++		if ((key = tcp_v4_md5_lookup (sk, child->daddr))) {
++			/* We're using one, so create a matching key
++			 * on the newsk structure. If we fail to get
++			 * memory, then we end up not copying the key
++			 * across. Shucks.
++			 */
++			char *newkey = kmalloc (key->keylen, GFP_ATOMIC);
++			if (newkey) {
++				memcpy (newkey, key->key, key->keylen);
++				tcp_v4_md5_do_add (child, child->daddr,
++						   newkey, key->keylen);
++			}
++		}
++	}
++#endif
++
+ 	tcp_synq_unlink(tp, req, prev);
+ 	tcp_synq_removed(sk, req);
+ 
+@@ -977,7 +1031,7 @@
+ embryonic_reset:
+ 	NET_INC_STATS_BH(EmbryonicRsts);
+ 	if (!(flg & TCP_FLAG_RST))
+-		req->class->send_reset(skb);
++		req->class->send_reset(sk, skb);
+ 
+ 	tcp_synq_drop(sk, req, prev);
+ 	return NULL;
+diff -ruN linux-2.4.26/net/ipv4/tcp_output.c linux-2.4.26-md5/net/ipv4/tcp_output.c
+--- linux-2.4.26/net/ipv4/tcp_output.c	2003-11-28 10:26:21.000000000 -0800
++++ linux-2.4.26-md5/net/ipv4/tcp_output.c	2004-04-21 13:50:57.000000000 -0700
+@@ -41,6 +41,10 @@
+ #include <linux/compiler.h>
+ #include <linux/smp_lock.h>
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++#include <linux/tcp_md5.h>
++#endif
++
+ /* People can turn this off for buggy TCP's found in printers etc. */
+ int sysctl_tcp_retrans_collapse = 1;
+ 
+@@ -195,6 +199,10 @@
+ 		struct tcphdr *th;
+ 		int sysctl_flags;
+ 		int err;
++#ifdef CONFIG_TCP_MD5_AUTH
++		struct tcp_rfc2385 *md5 = NULL;
++		__u8 *md5_hash_location;
++#endif
+ 
+ #define SYSCTL_FLAG_TSTAMPS	0x1
+ #define SYSCTL_FLAG_WSCALE	0x2
+@@ -223,6 +231,15 @@
+ 			tcp_header_size += (TCPOLEN_SACK_BASE_ALIGNED +
+ 					    (tp->eff_sacks * TCPOLEN_SACK_PERBLOCK));
+ 		}
++
++#ifdef CONFIG_TCP_MD5_AUTH
++		/* Are we doing MD5 on this segment? If so - make room for it */
++		md5 = tcp_v4_md5_lookup (sk, sk->daddr);
++		if (md5) {
++			tcp_header_size += TCPOLEN_MD5_AUTH_ALIGNED;
++		}
++#endif
++
+ 		th = (struct tcphdr *) skb_push(skb, tcp_header_size);
+ 		skb->h.th = th;
+ 		skb_set_owner_w(skb, sk);
+@@ -258,13 +275,34 @@
+ 					      (sysctl_flags & SYSCTL_FLAG_WSCALE),
+ 					      tp->rcv_wscale,
+ 					      tcb->when,
+-		      			      tp->ts_recent);
++		      			      tp->ts_recent
++#ifdef CONFIG_TCP_MD5_AUTH
++					      , md5 ? 1 : 0,
++					      &md5_hash_location
++#endif
++					      );
+ 		} else {
+ 			tcp_build_and_update_options((__u32 *)(th + 1),
+-						     tp, tcb->when);
++						     tp, tcb->when
++#ifdef CONFIG_TCP_MD5_AUTH
++						     , md5 ? 1 : 0,
++						     &md5_hash_location
++#endif
++						     );
+ 
+ 			TCP_ECN_send(sk, tp, skb, tcp_header_size);
+ 		}
++
++#ifdef CONFIG_TCP_MD5_AUTH
++		/* Calculate the MD5 hash, as we have all we need now */
++		if (md5) {
++			tcp_v4_calc_md5_hash (md5_hash_location,
++					      md5,
++					      sk->saddr, sk->daddr,
++					      skb->h.th, sk->protocol,
++					      skb->len);
++		}
++#endif
+ 		tp->af_specific->send_check(sk, th, skb->len, skb);
+ 
+ 		if (tcb->flags & TCPCB_FLAG_ACK)
+@@ -1101,6 +1139,11 @@
+ 	struct tcphdr *th;
+ 	int tcp_header_size;
+ 	struct sk_buff *skb;
++#ifdef CONFIG_TCP_MD5_AUTH
++	struct rtable *rt = (struct rtable *)dst;
++	struct tcp_rfc2385 *md5 = NULL;
++	__u8 *md5_hash_location;
++#endif
+ 
+ 	skb = sock_wmalloc(sk, MAX_TCP_HEADER + 15, 1, GFP_ATOMIC);
+ 	if (skb == NULL)
+@@ -1116,6 +1159,15 @@
+ 			   (req->wscale_ok ? TCPOLEN_WSCALE_ALIGNED : 0) +
+ 			   /* SACK_PERM is in the place of NOP NOP of TS */
+ 			   ((req->sack_ok && !req->tstamp_ok) ? TCPOLEN_SACKPERM_ALIGNED : 0));
++
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* Are we doing MD5 on this segment? If so - make room for it */
++	md5 = tcp_v4_md5_lookup (sk, rt->rt_dst);
++	if (md5) {
++		tcp_header_size += TCPOLEN_MD5_AUTH_ALIGNED;
++	}
++#endif
++
+ 	skb->h.th = th = (struct tcphdr *) skb_push(skb, tcp_header_size);
+ 
+ 	memset(th, 0, sizeof(struct tcphdr));
+@@ -1149,11 +1201,27 @@
+ 	tcp_syn_build_options((__u32 *)(th + 1), dst->advmss, req->tstamp_ok,
+ 			      req->sack_ok, req->wscale_ok, req->rcv_wscale,
+ 			      TCP_SKB_CB(skb)->when,
+-			      req->ts_recent);
++			      req->ts_recent
++#ifdef CONFIG_TCP_MD5_AUTH
++			      , (md5 ? 1 : 0) , &md5_hash_location
++#endif
++			      );
+ 
+ 	skb->csum = 0;
+ 	th->doff = (tcp_header_size >> 2);
+ 	TCP_INC_STATS(TcpOutSegs);
++
++#ifdef CONFIG_TCP_MD5_AUTH
++	/* Okay, we have all we need - do the md5 hash if needed */
++	if (md5) {
++		tcp_v4_calc_md5_hash (md5_hash_location,
++				      md5,
++				      rt->rt_src, rt->rt_dst,
++				      skb->h.th, sk->protocol,
++				      skb->len);
++	}
++#endif
++
+ 	return skb;
+ }
+ 
+@@ -1171,6 +1239,11 @@
+ 	tp->tcp_header_len = sizeof(struct tcphdr) +
+ 		(sysctl_tcp_timestamps ? TCPOLEN_TSTAMP_ALIGNED : 0);
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++	if (tcp_v4_md5_lookup (sk, sk->daddr))
++		tp->tcp_header_len += TCPOLEN_MD5_AUTH_ALIGNED;
++#endif
++
+ 	/* If user gave his TCP_MAXSEG, record it to clamp */
+ 	if (tp->user_mss)
+ 		tp->mss_clamp = tp->user_mss;
+diff -ruN linux-2.4.26/net/ipv6/tcp_ipv6.c linux-2.4.26-md5/net/ipv6/tcp_ipv6.c
+--- linux-2.4.26/net/ipv6/tcp_ipv6.c	2004-04-14 06:05:41.000000000 -0700
++++ linux-2.4.26-md5/net/ipv6/tcp_ipv6.c	2004-04-21 13:50:57.000000000 -0700
+@@ -53,7 +53,7 @@
+ 
+ #include <asm/uaccess.h>
+ 
+-static void	tcp_v6_send_reset(struct sk_buff *skb);
++static void	tcp_v6_send_reset(struct sock *sk, struct sk_buff *skb);
+ static void	tcp_v6_or_send_ack(struct sk_buff *skb, struct open_request *req);
+ static void	tcp_v6_send_check(struct sock *sk, struct tcphdr *th, int len, 
+ 				  struct sk_buff *skb);
+@@ -961,7 +961,7 @@
+ }
+ 
+ 
+-static void tcp_v6_send_reset(struct sk_buff *skb)
++static void tcp_v6_send_reset(struct sock *sk, struct sk_buff *skb)
+ {
+ 	struct tcphdr *th = skb->h.th, *t1; 
+ 	struct sk_buff *buff;
+@@ -1518,7 +1518,7 @@
+ 	return 0;
+ 
+ reset:
+-	tcp_v6_send_reset(skb);
++	tcp_v6_send_reset(sk, skb);
+ discard:
+ 	if (opt_skb)
+ 		__kfree_skb(opt_skb);
+@@ -1628,7 +1628,7 @@
+ bad_packet:
+ 		TCP_INC_STATS_BH(TcpInErrs);
+ 	} else {
+-		tcp_v6_send_reset(skb);
++		tcp_v6_send_reset(NULL, skb);
+ 	}
+ 
+ discard_it:
+diff -ruN linux-2.4.26/net/netsyms.c linux-2.4.26-md5/net/netsyms.c
+--- linux-2.4.26/net/netsyms.c	2004-04-14 06:05:41.000000000 -0700
++++ linux-2.4.26-md5/net/netsyms.c	2004-04-21 13:50:57.000000000 -0700
+@@ -407,6 +407,10 @@
+ EXPORT_SYMBOL(sysctl_max_syn_backlog);
+ #endif
+ 
++#ifdef CONFIG_TCP_MD5_AUTH
++EXPORT_SYMBOL(tcp_v4_md5_lookup);
++#endif
++
+ #if defined (CONFIG_IPV6_MODULE)
+ EXPORT_SYMBOL(secure_tcpv6_sequence_number);
+ EXPORT_SYMBOL(secure_ipv6_id);

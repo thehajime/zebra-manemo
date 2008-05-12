@@ -1,0 +1,9 @@
+Makefile
+Makefile.in
+*.o
+bgpd
+bgp_btoa
+bgpd.conf
+tags
+TAGS
+.deps

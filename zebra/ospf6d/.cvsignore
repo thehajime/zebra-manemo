@@ -1,0 +1,10 @@
+Makefile
+Makefile.in
+*.o
+*.patch
+ospf6d
+ospf6d.conf
+ospf6test
+tags
+TAGS
+.deps

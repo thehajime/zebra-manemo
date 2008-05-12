@@ -1,0 +1,25 @@
+2007-07-12  Kunihiro Ishiguro  <kunihiro@ipinfusion.com>
+
+	* Add new files for vtysh's more:
+
+	ch.c
+	filename.c
+	less.h
+	main.c
+	os.c
+	position.c
+	signal.c
+	command.c
+	help.c
+	line.c
+	more.c
+	output.c
+	prim.c
+	tags.c
+	decode.c
+	input.c
+	linenum.c
+	option.c
+	pathnames.h
+	screen.c
+	ttyin.

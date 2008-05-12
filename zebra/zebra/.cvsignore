@@ -1,0 +1,9 @@
+Makefile
+Makefile.in
+*.o
+zebra
+zebra.conf
+client
+tags
+TAGS
+.deps
