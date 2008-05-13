@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 7fcbfc13ab62 2008/05/13 01:36:32 tazaki $
+ * $Id: td.c,v 16a46fcc0c18 2008/05/13 05:20:22 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -713,6 +713,60 @@ DEFUN (show_ipv6_nd_td_neighbor,
   return CMD_SUCCESS;
 }
 
+DEFUN (show_ipv6_nd_td,
+       show_ipv6_nd_td_cmd,
+       "show ipv6 nd td",
+       SHOW_STR
+       IPV6_STR
+       "Neighbor discovery\n"
+       "Tree Discovery\n")
+{
+  char buf[INET6_ADDRSTRLEN];
+
+  vty_out(vty, "Tree Discovery Protocol Status%s", VTY_NEWLINE);
+  if(!td)
+    vty_out(vty, " Not processed%s", VTY_NEWLINE);
+
+  vty_out(vty, " Tree Depth %d%s%s",
+          td->tio.depth, td->tio.depth == 0 ? "(Owner of Tree)": "", 
+          VTY_NEWLINE);
+  vty_out(vty, " MR Preference %d%s",td->tio.mr_pref, VTY_NEWLINE);
+  vty_out(vty, " Tree Preference %d%s",td->tio.tree_pref, VTY_NEWLINE);
+  vty_out(vty, " Tree Delay %d%s",td->tio.delay, VTY_NEWLINE);
+  vty_out(vty, " Tree ID %s%s", 
+          inet_ntop(AF_INET6, (struct in6_addr *)&td->tio.tree_id, 
+                    buf, sizeof(buf)), VTY_NEWLINE);
+
+  vty_out(vty, "%s", VTY_NEWLINE);
+  vty_out(vty, " Number of Neighbors %d%s", listcount(td->td_nbrs), VTY_NEWLINE);
+  vty_out(vty, " Attachment Router %s%s", 
+          td->attach_rtr ? 
+          inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->saddr.sin6_addr, 
+                    buf, sizeof(buf)) : "(Floated)", VTY_NEWLINE);
+  vty_out(vty, " Flags: %s%s", CHECK_FLAG(td->flags, TD_IS_FIXED_ROUTER) ? 
+          "Fixed Router" : " ", VTY_NEWLINE);
+  vty_out(vty, " Last Attachment Tree %s, seqnum=%d%s", 
+          inet_ntop(AF_INET6, (struct in6_addr *)&td->last_tree_id, 
+                    buf, sizeof(buf)), 
+          td->last_tree_seq, VTY_NEWLINE);
+
+  vty_out(vty, "%s", VTY_NEWLINE);
+  vty_out(vty, " Packet Counter %s", VTY_NEWLINE);
+  vty_out(vty, "  Router Solicitation %s", VTY_NEWLINE);
+  vty_out(vty, "   Send %llu %s", td->rs_send, VTY_NEWLINE);
+  vty_out(vty, "   Receive %llu %s", td->rs_recv, VTY_NEWLINE);
+  vty_out(vty, "   Discard %llu %s", td->rs_discard, VTY_NEWLINE);
+  vty_out(vty, "   Error %llu %s", td->rs_error, VTY_NEWLINE);
+  vty_out(vty, "  Router Advertisement %s", VTY_NEWLINE);
+  vty_out(vty, "   Send %llu %s", td->ra_send, VTY_NEWLINE);
+  vty_out(vty, "   Receive %llu %s", td->ra_recv, VTY_NEWLINE);
+  vty_out(vty, "   Discard %llu %s", td->ra_discard, VTY_NEWLINE);
+  vty_out(vty, "   Error %llu %s", td->ra_error, VTY_NEWLINE);
+
+
+  return CMD_SUCCESS;
+}
+
 void
 mndp_config_if_write (struct vty *vty, struct interface *ifp)
 {
@@ -814,6 +868,8 @@ td_init()
   install_element(INTERFACE_NODE, &no_ipv6_nd_td_ingress_cmd);
   install_element(ENABLE_NODE, &show_ipv6_nd_td_neighbor_cmd);
   install_element(VIEW_NODE, &show_ipv6_nd_td_neighbor_cmd);
+  install_element(ENABLE_NODE, &show_ipv6_nd_td_cmd);
+  install_element(VIEW_NODE, &show_ipv6_nd_td_cmd);
 
   install_element(CONFIG_NODE, &ipv6_nd_td_fixed_cmd);
   install_element(CONFIG_NODE, &no_ipv6_nd_td_fixed_cmd);
