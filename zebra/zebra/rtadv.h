@@ -21,6 +21,19 @@ Boston, MA 02110-1301, USA.  */
 #ifndef _ZEBRA_RTADV_H
 #define _ZEBRA_RTADV_H
 
+enum rtadv_event {RTADV_START, RTADV_STOP, RTADV_TIMER, RTADV_READ};
+
+/* Structure which hold status of router advertisement. */
+struct rtadv
+{
+  int sock;
+
+  int adv_if_count;
+
+  struct thread *ra_read;
+  struct thread *ra_timer;
+};
+
 /* Router advertisement prefix. */
 struct rtadv_prefix
 {
@@ -44,5 +57,9 @@ struct rtadv_prefix
 };
 
 void rtadv_config_write (struct vty *, struct interface *);
+
+void rtadv_event (enum rtadv_event, int);
+void rtadv_send_packet (int, struct interface *, 
+                        const struct in6_addr *, int);
 
 #endif /* _ZEBRA_RTADV_H */

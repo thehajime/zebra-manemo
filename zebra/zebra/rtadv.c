@@ -32,6 +32,8 @@ Boston, MA 02110-1301, USA.  */
 #include "zebra/interface.h"
 #include "zebra/rtadv.h"
 #include "zebra/debug.h"
+#include "zebra/td.h"
+#include "zebra/td_neighbor.h"
 
 #if defined (HAVE_IPV6) && defined (RTADV)
 
@@ -46,25 +48,13 @@ Boston, MA 02110-1301, USA.  */
 #define ALLNODE   "ff02::1"
 #define ALLROUTER "ff02::2"
 
-enum rtadv_event {RTADV_START, RTADV_STOP, RTADV_TIMER, RTADV_READ};
-
-void rtadv_event (enum rtadv_event, int);
-
 int if_join_all_router (int, struct interface *);
 int if_leave_all_router (int, struct interface *);
 
-/* Structure which hold status of router advertisement. */
-struct rtadv
-{
-  int sock;
-
-  int adv_if_count;
-
-  struct thread *ra_read;
-  struct thread *ra_timer;
-};
-
 struct rtadv *rtadv = NULL;
+extern struct td_master *td;
+extern struct thread_master *master;
+
 
 struct rtadv *
 rtadv_new ()
@@ -135,7 +125,8 @@ rtadv_recv_packet (int sock, u_char *buf, int buflen,
 
 /* Send router advertisement packet. */
 void
-rtadv_send_packet (int sock, struct interface *ifp)
+rtadv_send_packet (int sock, struct interface *ifp, 
+                   const struct in6_addr *to, int expire)
 {
   struct msghdr msg;
   struct iovec iov;
@@ -151,7 +142,6 @@ rtadv_send_packet (int sock, struct interface *ifp)
   int ret;
   int len = 0;
   struct zebra_if *zif;
-  u_char all_nodes_addr[] = {0xff,0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
   struct listnode *node;
 
   /* Logging of packet. */
@@ -165,10 +155,20 @@ rtadv_send_packet (int sock, struct interface *ifp)
   addr.sin6_len = sizeof (struct sockaddr_in6);
 #endif /* SIN6_LEN */
   addr.sin6_port = htons (IPPROTO_ICMPV6);
-  memcpy (&addr.sin6_addr, all_nodes_addr, sizeof (struct in6_addr));
+  memcpy (&addr.sin6_addr, to, sizeof (struct in6_addr));
 
   /* Fetch interface information. */
   zif = ifp->info;
+
+  /* draft-td-06 Sec. 5,7 */
+  if(CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG))
+    {
+      if(td->attach_rtr && td->attach_rtr->state == NSM_HeldUp)
+        {
+          td->ra_discard++;
+          return;
+        }
+    }
 
   /* Make router advertisement message. */
   rtadv = (struct nd_router_advert *) buf;
@@ -183,7 +183,10 @@ rtadv_send_packet (int sock, struct interface *ifp)
     rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
   if (zif->rtadv.AdvOtherConfigFlag)
     rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_OTHER;
-  rtadv->nd_ra_router_lifetime = htons (zif->rtadv.AdvDefaultLifetime);
+  if(expire)
+    rtadv->nd_ra_router_lifetime = htons (0);
+  else
+    rtadv->nd_ra_router_lifetime = htons (zif->rtadv.AdvDefaultLifetime);
   rtadv->nd_ra_reachable = htonl (zif->rtadv.AdvReachableTime);
   rtadv->nd_ra_retransmit = htonl (0);
 
@@ -250,6 +253,13 @@ rtadv_send_packet (int sock, struct interface *ifp)
     }
 #endif /* HAVE_SOCKADDR_DL */
 
+  /* encode tree information option */
+  if(CHECK_FLAG(zif->mndp.flags, MNDP_INGRESS_FLAG))
+    {
+      len += td_make_ti_option((struct nd_opt_tree_discovery *)
+                               ((char *)rtadv + len));
+    }
+
   msg.msg_name = (void *) &addr;
   msg.msg_namelen = sizeof (struct sockaddr_in6);
   msg.msg_iov = &iov;
@@ -268,8 +278,26 @@ rtadv_send_packet (int sock, struct interface *ifp)
   pkt->ipi6_ifindex = ifp->ifindex;
 
   ret = sendmsg (sock, &msg, 0);
-  if (ret <0)
-    perror ("sendmsg");
+  if(ret < 0)
+    {
+      td->ra_error++;
+      zlog_warn("sendmsg(send_ra) err on %s(%s)", 
+           ifp->name, strerror(errno));
+      return;
+    }
+
+  td->ra_send++;
+
+  if(0)
+    {
+      zlog_info("RA: %s: SEND(%llu):RA_TD ifindex=%d", 
+           ifp->name, td->ra_send, ifp->ifindex);
+
+      /* Packet dump */
+      zlog_dump(buf, ret);
+    }
+
+  return;
 }
 
 int
@@ -295,28 +323,146 @@ rtadv_timer (struct thread *thread)
 	if (--zif->rtadv.AdvIntervalTimer <= 0)
 	  {
 	    zif->rtadv.AdvIntervalTimer = zif->rtadv.MaxRtrAdvInterval;
-	    rtadv_send_packet (rtadv->sock, ifp);
+            rtadv_send_packet (rtadv->sock, ifp, &in6addr_linklocal_allnodes, 0);
 	  }
     }
   return 0;
 }
 
 void
-rtadv_process_solicit (struct interface *ifp)
+rtadv_process_solicit (struct interface *ifp, struct sockaddr_in6 *from)
 {
   zlog_info ("Router solicitation received on %s", ifp->name);
 
-  rtadv_send_packet (rtadv->sock, ifp);
+  if(IN6_IS_ADDR_UNSPECIFIED(&from->sin6_addr))
+    rtadv_send_packet (rtadv->sock, ifp, &in6addr_linklocal_allnodes, 0);
+  else
+    rtadv_send_packet (rtadv->sock, ifp, &from->sin6_addr, 0);
 }
 
 void
-rtadv_process_advert ()
+rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
+                      struct nd_router_advert *rtadv, int len)
 {
+  struct nd_opt_hdr *opt;
+  struct td_neighbor *nbr;
+  struct zebra_if *zif;
+  char abuf[INET6_ADDRSTRLEN];
+
   zlog_info ("Router advertisement received");
+
+  zif = ifp->info;
+
+  /* FIXME. TD_neighbor?'s name */
+  nbr = td_neighbor_lookup(td, from, ifp->ifindex);
+  if(nbr)
+    {
+      if(nbr->t_expire)
+        {
+          thread_cancel(nbr->t_expire);
+          nbr->t_expire = NULL;
+        }
+    }
+  else
+    {
+      nbr = td_neighbor_new(td, from, ifp->ifindex);
+      if(!nbr)
+        return;
+
+      /* New_Neighbor */
+      td_nsm_event(nbr, NSM_NewNeighbor);
+    }
+
+  /* regist expire timer */
+  nbr->t_expire = thread_add_timer(master, td_ra_timeout, nbr, 
+                                   rtadv->nd_ra_router_lifetime);
+
+  /* reachable time */
+  /* retransmit timer */
+#if 0
+rtadv->nd_ra_reachable;
+rtadv->nd_ra_retransmit;
+#endif
+
+  /* Option parsing */
+  opt = (struct nd_opt_hdr *)++rtadv;
+  len -= sizeof(struct nd_router_advert);
+
+  while(len>0)
+    {
+      switch(opt->nd_opt_type)
+        {
+        case ND_OPT_SOURCE_LINKADDR:
+        case ND_OPT_TARGET_LINKADDR:
+        case ND_OPT_REDIRECTED_HEADER:
+        case ND_OPT_MTU:
+          break;
+        case ND_OPT_PREFIX_INFORMATION:
+#ifdef USERLAND_ADDR_AUTOCONF
+          td_process_prefix_info((struct nd_opt_prefix_info *)opt, ifp);
+#endif /* USERLAND_ADDR_AUTOCONF */
+          break;
+        case ND_OPT_RA_TIO:
+          if(!nbr->tio)
+            nbr->tio = malloc(sizeof(struct nd_opt_tree_discovery));
+          memcpy(nbr->tio, opt, opt->nd_opt_len * 8);
+          break;
+        default:
+          break;
+        }
+
+      /* endof message */
+      if(opt->nd_opt_len == 0)
+        break;
+
+      len -= opt->nd_opt_len * 8;
+      opt = (struct nd_opt_hdr *)(((u_char *)opt) + opt->nd_opt_len * 8);
+    }
+
+  if(!nbr->tio)
+    {
+      if(IS_ZEBRA_DEBUG_EVENT)
+        zlog_info("TD: tio doesn't appear(via %s)", nbr->ifp->name);
+      nbr->tree_depth = 0;
+    }
+  else
+    {
+      nbr->tree_depth = nbr->tio->depth;
+      if(IS_ZEBRA_DEBUG_EVENT)
+        zlog_info("TD: tio depth is %hhu(via %s)", 
+             nbr->tree_depth, nbr->ifp->name);
+    }
+
+  /* Tree Discovery Process */
+  if(CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG))
+    td_process_tree_discovery(nbr);
+  else
+    {
+      zlog_info("TD: %s%%%s: ignore RA cause of not egress/ingress if",
+           inet_ntop(AF_INET6, &from->sin6_addr, abuf, sizeof(abuf)),
+           ifp->name
+           );
+      td->ra_discard++;
+      return;
+    }
+
+  if(0)
+    {
+      zlog_info("TD: %s%%%s: RECV(%llu):RA_TD ifindex=%d", 
+           inet_ntop(AF_INET6, &from->sin6_addr, abuf, sizeof(abuf)),
+           ifp->name,
+           td->ra_recv, ifp->ifindex);
+
+      /* Packet dump */
+      zlog_dump((u_char *)rtadv, len);
+    }
+
+  return;
 }
 
 void
-rtadv_process_packet (u_char *buf, int len, unsigned int ifindex, int hoplimit)
+rtadv_process_packet (u_char *buf, int len, struct sockaddr_in6 *from,
+                      unsigned int ifindex, int hoplimit)
 {
   struct icmp6_hdr *icmph;
   struct interface *ifp;
@@ -335,7 +481,8 @@ rtadv_process_packet (u_char *buf, int len, unsigned int ifindex, int hoplimit)
 
   /* Check interface configuration. */
   zif = ifp->info;
-  if (! zif->rtadv.AdvSendAdvertisements)
+  if (! zif->rtadv.AdvSendAdvertisements &&
+      !CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG))
     return;
 
   /* ICMP message length check. */
@@ -358,16 +505,27 @@ rtadv_process_packet (u_char *buf, int len, unsigned int ifindex, int hoplimit)
   /* Hoplimit check. */
   if (hoplimit >= 0 && hoplimit != 255)
     {
+      td->ra_error++;
       zlog_warn ("Invalid hoplimit %d for router advertisement ICMP packet",
 		 hoplimit);
       return;
     }
 
   /* Check ICMP message type. */
-  if (icmph->icmp6_type == ND_ROUTER_SOLICIT)
-    rtadv_process_solicit (ifp);
-  else if (icmph->icmp6_type == ND_ROUTER_ADVERT)
-    rtadv_process_advert ();
+  switch(icmph->icmp6_type)
+    {
+    case ND_ROUTER_SOLICIT:
+      rtadv_process_solicit (ifp, from);
+      td->rs_recv++;
+      break;
+    case ND_ROUTER_ADVERT:
+      /* process RA packet */
+      rtadv_process_advert (ifp, from, (struct nd_router_advert *)buf, len);
+      td->ra_recv++;
+      break;
+    default:
+      break;
+    }
 
   return;
 }
@@ -396,7 +554,7 @@ rtadv_read (struct thread *thread)
       return len;
     }
 
-  rtadv_process_packet (buf, len, ifindex, hoplimit);
+  rtadv_process_packet (buf, len, &from, ifindex, hoplimit);
 
   return 0;
 }
@@ -988,9 +1146,10 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 	vty_out (vty, " autoconfig");
       vty_out (vty, "%s", VTY_NEWLINE);
     }
-}
 
-extern struct thread_master *master;
+  mndp_config_if_write (vty, ifp);
+
+}
 
 void
 rtadv_event (enum rtadv_event event, int val)

@@ -480,3 +480,30 @@ mes_lookup (struct message *meslist, int max, int index)
     }
   return meslist[index].str;
 }
+
+int
+zlog_dump(u_char *buf, int len)
+{
+  int i = 0;
+  char sbuf[1024];
+
+  zlog_info("Packet length = %d", len);
+  zlog_info(" 0  1  2  3  4  5  6  7   8  9  A  B  C  D  E  F");
+  zlog_info("================================================");
+
+  for(i=0; i<len; i++)
+    {
+      if(i%16 == 0)
+        sprintf(sbuf, "\n");
+      else if(i%8 == 0)
+        sprintf(sbuf, " ");
+
+      sprintf(sbuf, "%02X ", buf[i]);
+
+    }
+  zlog_info("%s", sbuf);
+
+  zlog_info("================================================");
+
+  return 0;
+}

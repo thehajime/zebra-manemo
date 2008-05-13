@@ -33,7 +33,10 @@ Boston, MA 02110-1301, USA.  */
 #include "zebra/zserv.h"
 #include "zebra/debug.h"
 #include "zebra/rib.h"
+#ifdef HAVE_NETLINK
 #include "zebra/netlink.h"
+#endif /* HAVE_NETLINK */
+#include "zebra/td.h"
 
 /* Master of threads. */
 struct thread_master *master;
@@ -119,6 +122,8 @@ sigint (int sig)
   void rib_close ();
 
   zlog_info ("Terminating on signal");
+
+  td_terminate();
 
   if (!retain_mode)
     rib_close ();
@@ -281,6 +286,7 @@ main (int argc, char **argv)
 #ifdef HAVE_KBFD
   bfd_netlink_init();
 #endif /*HAVE_KBFD*/
+  td_init();
 
   /* Sort VTY commands. */
   sort_node ();

@@ -63,7 +63,8 @@ enum node_type
   SMUX_NODE,			/* SNMP configuration node. */
   DUMP_NODE,			/* Packet dump node. */
   FORWARDING_NODE,		/* IP forwarding node. */
-  VTY_NODE			/* Vty node. */
+  VTY_NODE,			/* Vty node. */
+  MNDP_NODE,			/* MNDP node. */
 };
 
 enum vty_status {VTY_NORMAL, VTY_CLOSE, VTY_MORE, VTY_MORELINE,

@@ -53,7 +53,8 @@ struct
   {ZEBRA_ROUTE_RIPNG,   120},
   {ZEBRA_ROUTE_OSPF,    110},
   {ZEBRA_ROUTE_OSPF6,   110},
-  {ZEBRA_ROUTE_BGP,      20  /* IBGP is 200. */}
+  {ZEBRA_ROUTE_BGP,      20  /* IBGP is 200. */},
+  {ZEBRA_ROUTE_MNDP,     50},
 };
 
 /* Vector for routing table.  */

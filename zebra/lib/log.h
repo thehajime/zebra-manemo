@@ -121,6 +121,7 @@ int zlog_rotate ();
 
 char *lookup (struct message *, int);
 char *mes_lookup (struct message *meslist, int max, int index);
+int zlog_dump(u_char *, int);
 
 extern const char *zlog_priority[];
 

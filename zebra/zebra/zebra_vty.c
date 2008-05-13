@@ -50,6 +50,8 @@ route_type_str (u_char type)
       return "ospf";
     case ZEBRA_ROUTE_BGP:
       return "bgp";
+    case ZEBRA_ROUTE_MNDP:
+      return "mndp";
     default:
       return "unknown";
     }
@@ -79,6 +81,8 @@ route_type_char (u_char type)
       return 'O';
     case ZEBRA_ROUTE_BGP:
       return 'B';
+    case ZEBRA_ROUTE_MNDP:
+      return 'N';
     default:
       return '?';
     }
@@ -1031,7 +1035,8 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
 #define ONE_WEEK_SECOND 60*60*24*7
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
-	  || rib->type == ZEBRA_ROUTE_BGP)
+	  || rib->type == ZEBRA_ROUTE_BGP
+	  || rib->type == ZEBRA_ROUTE_MNDP)
 	{
 	  time_t uptime;
 	  struct tm *tm;
@@ -1209,7 +1214,8 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
 
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
-	  || rib->type == ZEBRA_ROUTE_BGP)
+	  || rib->type == ZEBRA_ROUTE_BGP
+	  || rib->type == ZEBRA_ROUTE_MNDP)
 	{
 	  time_t uptime;
 	  struct tm *tm;
@@ -1236,7 +1242,7 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
     }
 }
 
-#define SHOW_ROUTE_V6_HEADER "Codes: K - kernel route, C - connected, S - static, R - RIPng, O - OSPFv3,%s       B - BGP, * - FIB route.%s%s"
+#define SHOW_ROUTE_V6_HEADER "Codes: K - kernel route, C - connected, S - static, R - RIPng, O - OSPFv3,%s       B - BGP, N - MNDP, * - FIB route.%s%s"
 
 DEFUN (show_ipv6_route,
        show_ipv6_route_cmd,
@@ -1312,7 +1318,7 @@ DEFUN (show_ipv6_route_prefix_longer,
 
 DEFUN (show_ipv6_route_protocol,
        show_ipv6_route_protocol_cmd,
-       "show ipv6 route (bgp|connected|kernel|ospf6|ripng|static)",
+       "show ipv6 route (bgp|connected|kernel|ospf6|ripng|static|mndp)",
        SHOW_STR
        IP_STR
        "IP routing table\n"
@@ -1321,7 +1327,8 @@ DEFUN (show_ipv6_route_protocol,
        "Kernel\n"
        "Open Shortest Path First (OSPFv3)\n"
        "Routing Information Protocol (RIPng)\n"
-       "Static routes\n")
+       "Static routes\n"
+       "Multi-hop NDP routes\n")
 {
   int type;
   struct route_table *table;
@@ -1341,6 +1348,8 @@ DEFUN (show_ipv6_route_protocol,
     type = ZEBRA_ROUTE_RIPNG;
   else if (strncmp (argv[0], "s", 1) == 0)
     type = ZEBRA_ROUTE_STATIC;
+  else if (strncmp (argv[0], "m", 1) == 0)
+    type = ZEBRA_ROUTE_MNDP;
   else 
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);

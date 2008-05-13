@@ -132,6 +132,13 @@ struct rtadvconf
 
 #endif /* RTADV */
 
+struct mndp_conf
+{
+#define     MNDP_EGRESS_FLAG      (1 << 0)
+#define     MNDP_INGRESS_FLAG     (1 << 1)
+  int flags;
+};
+
 /* `zebra' daemon local interface structure. */
 struct zebra_if
 {
@@ -156,6 +163,7 @@ struct zebra_if
   struct irdp_interface irdp;
 #endif
 
+  struct mndp_conf mndp;
 };
 
 void if_delete_update (struct interface *ifp);

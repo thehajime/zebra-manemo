@@ -22,11 +22,12 @@ sbin_PROGRAMS = zebra
 zebra_SOURCES = \
 	zserv.c main.c interface.c connected.c ioctl.c zebra_rib.c \
 	redistribute.c debug.c rtadv.c zebra_snmp.c zebra_vty.c \
-	irdp_main.c irdp_interface.c irdp_packet.c bfd.c
+	irdp_main.c irdp_interface.c irdp_packet.c bfd.c td.c td_neighbor.c \
+	td_api.c
 
 noinst_HEADERS = \
 	connected.h ioctl.h rib.h rt.h zserv.h redistribute.h debug.h rtadv.h \
-	interface.h ipforward.h irdp.h netlink.h bfd.h
+	interface.h ipforward.h irdp.h netlink.h bfd.h td.h td_neighbor.h td_api.h
 
 zebra_LDADD = ../lib/libzebra.a $(otherobj) $(LIB_IPV6)
 
