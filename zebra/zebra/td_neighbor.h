@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.h,v 7fcbfc13ab62 2008/05/13 01:36:32 tazaki $
+ * $Id: td_neighbor.h,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -38,34 +38,32 @@
 
 struct td_nbr_log
 {
-  time_t time;
-  u_int8_t state;
+	time_t time;
+	u_int8_t state;
 };
 
 struct td_neighbor
 {
-  struct td_neighbor *next;
-  struct td_neighbor *prev;
-  struct sockaddr_in6 saddr;
-  struct interface *ifp;
-  struct nd_opt_tree_discovery *tio;
-  struct thread *t_expire;
-  struct thread *t_treehop;
-  struct thread *t_holddown;
-  u_int8_t tree_depth;
-  u_int8_t state;
-  u_int8_t rsv1;
-  u_int16_t rsv2;
-  struct td_nbr_log state_log[MAX_NBR_STATE_LOG];
-  u_int32_t changes;
+	struct sockaddr_in6 saddr;
+	struct interface *ifp;
+	struct nd_opt_tree_discovery *tio;
+	struct thread *t_expire;
+	struct thread *t_treehop;
+	struct thread *t_holddown;
+	u_int8_t tree_depth;
+	u_int8_t state;
+	u_int8_t rsv1;
+	u_int16_t rsv2;
+	struct td_nbr_log state_log[MAX_NBR_STATE_LOG];
+	u_int32_t changes;
 };
 
 
 struct td_neighbor *td_neighbor_new(struct td_master *, struct sockaddr_in6 *,
-                                    int);
+    int);
 void td_neighbor_free(struct td_master *, struct td_neighbor *);
 struct td_neighbor *td_neighbor_lookup(struct td_master *, struct sockaddr_in6 *,
-                                       int);
+    int);
 int td_nsm_event(struct td_neighbor *, int);
 char * td_neighbor_print(struct td_neighbor *);
 

@@ -48,6 +48,10 @@ Boston, MA 02110-1301, USA.  */
 #define ALLNODE   "ff02::1"
 #define ALLROUTER "ff02::2"
 
+#ifdef GNU_LINUX
+u_char in6addr_linklocal_allnodes[] = {0xff,0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+#endif
+
 int if_join_all_router (int, struct interface *);
 int if_leave_all_router (int, struct interface *);
 
@@ -258,6 +262,10 @@ rtadv_send_packet (int sock, struct interface *ifp,
     {
       len += td_make_ti_option((struct nd_opt_tree_discovery *)
                                ((char *)rtadv + len));
+
+
+      /* For NINA operation */
+      nina_send_ratio(ifp);
     }
 
   msg.msg_name = (void *) &addr;

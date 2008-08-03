@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 16a46fcc0c18 2008/05/13 05:20:22 tazaki $
+ * $Id: td.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -20,6 +20,7 @@
 #include "crc32.h"
 #include "command.h"
 #include "vty.h"
+#include "memory.h"
 
 #include "zebra/debug.h"
 #include "zebra/interface.h"
@@ -27,11 +28,17 @@
 #include "zebra/td_neighbor.h"
 #include "zebra/td_api.h"
 #include "zebra/rtadv.h"
+#include "zebra/nina.h"
 
 #if defined(__FreeBSD__) || defined(__NetBSD__)
 const struct in6_addr in6addr_linklocal_allrouters =
   IN6ADDR_LINKLOCAL_ALLROUTERS_INIT;
 #endif  /* FreeBSD */
+
+#ifdef GNU_LINUX
+u_char in6addr_linklocal_allrouters[] = {0xff,0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,2};
+extern u_char in6addr_linklocal_allnodes[];
+#endif
 
 #define RA_MAX_RTR_ADV_INTV    600
 #define RA_DEFAULT_LIFETIME    (RA_MAX_RTR_ADV_INTV * 3)
@@ -40,6 +47,7 @@ const struct in6_addr in6addr_linklocal_allrouters =
 #define ND_PKT_LEN  2048
 
 extern struct rtadv *rtadv;
+extern struct nina *nina_top;
 struct thread_master *master = NULL;
 struct td_master *td = NULL;
 
@@ -157,7 +165,9 @@ td_send_rs_packet(int sock, struct interface *ifp)
   memset(&addr, 0, sizeof(struct sockaddr_in6));
   addr.sin6_family = AF_INET6;
   addr.sin6_port = htons(IPPROTO_ICMPV6);
+#ifdef SIN6_LEN
   addr.sin6_len = sizeof(struct sockaddr_in6);
+#endif /* SIN6_LEN */
   memcpy(&addr.sin6_addr, &in6addr_linklocal_allrouters, sizeof(struct in6_addr));
 
   msg.msg_name = (void *)&addr;
@@ -257,6 +267,12 @@ td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
       memset(td->last_tree_id, 0, sizeof(td->last_tree_id));
       td->last_tree_seq = 0;
     }
+
+
+  if(new)
+    td->tio.depth = new->tree_depth +1; 
+  else
+    td->tio.depth = 1; 
 
 
   if(old)
@@ -515,6 +531,14 @@ td_process_tree_discovery(struct td_neighbor *nbr)
         }
     }
 
+  if(nbr->state == NSM_Current && nbr->tio){
+	  if(nina_top && !nina_top->t_delay) {
+		  nina_top->t_delay = thread_add_timer(master, nina_delay_na_timer
+		      , nbr, (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
+	  }
+  }
+
+
   return 0;
 }
 
@@ -728,7 +752,7 @@ DEFUN (show_ipv6_nd_td,
     vty_out(vty, " Not processed%s", VTY_NEWLINE);
 
   vty_out(vty, " Tree Depth %d%s%s",
-          td->tio.depth, td->tio.depth == 0 ? "(Owner of Tree)": "", 
+          td->tio.depth, td->tio.depth == 1 ? "(Owner of Tree)": "", 
           VTY_NEWLINE);
   vty_out(vty, " MR Preference %d%s",td->tio.mr_pref, VTY_NEWLINE);
   vty_out(vty, " Tree Preference %d%s",td->tio.tree_pref, VTY_NEWLINE);
@@ -739,10 +763,11 @@ DEFUN (show_ipv6_nd_td,
 
   vty_out(vty, "%s", VTY_NEWLINE);
   vty_out(vty, " Number of Neighbors %d%s", listcount(td->td_nbrs), VTY_NEWLINE);
-  vty_out(vty, " Attachment Router %s%s", 
-          td->attach_rtr ? 
-          inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->saddr.sin6_addr, 
-                    buf, sizeof(buf)) : "(Floated)", VTY_NEWLINE);
+  vty_out(vty, " Attachment Router %s%s%s", 
+      td->attach_rtr ? 
+      inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->saddr.sin6_addr, 
+	  buf, sizeof(buf)) : "(Floated)",
+      (td->attach_rtr && td->attach_rtr->tio) ? "" : "Non TIO AR", VTY_NEWLINE);
   vty_out(vty, " Flags: %s%s", CHECK_FLAG(td->flags, TD_IS_FIXED_ROUTER) ? 
           "Fixed Router" : " ", VTY_NEWLINE);
   vty_out(vty, " Last Attachment Tree %s, seqnum=%d%s", 
@@ -790,6 +815,9 @@ mndp_config_write (struct vty *vty)
   if(CHECK_FLAG(td->flags, TD_IS_FIXED_ROUTER))
     vty_out (vty, "ipv6 nd td fixed%s", VTY_NEWLINE);
 
+  if(nina_top)
+    vty_out (vty, "ipv6 nd nina enable%s", VTY_NEWLINE);
+
   return 0;
 }
 
@@ -810,7 +838,7 @@ td_init()
   struct prefix *p;
   struct listnode *node, *node2;
 
-  td = calloc(1, sizeof(struct td_master));
+  td = XCALLOC(MTYPE_TD, sizeof(struct td_master));
   if(!td)
     return -1;
 
@@ -874,6 +902,8 @@ td_init()
   install_element(CONFIG_NODE, &ipv6_nd_td_fixed_cmd);
   install_element(CONFIG_NODE, &no_ipv6_nd_td_fixed_cmd);
 
+  /* For API */
+  api_init(MNDP_API_PATH);
 
   return 0;
 }

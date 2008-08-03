@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.h,v 7fcbfc13ab62 2008/05/13 01:36:32 tazaki $
+ * $Id: td.h,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -43,7 +43,7 @@
 #define   TIO_BASE_FLAG_HOME_NET         (1 << 6)
 #define   TIO_BASE_FLAG_BATTERY          (1 << 5)
 
-#define   ND_OPT_RA_TIO                  100 /* TBD */
+#define   ND_OPT_RA_TIO                  10 /* TBD */
 #define   TIO_TREE_DELAY_DEFAULT         12 /* 12800 msec */
 
 #define   TD_HOLDDOWN_TIMER_DEFAULT     10 /* 10sec */

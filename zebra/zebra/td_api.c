@@ -1,7 +1,7 @@
 /* 
  * API interface for external application
  *
- * $Id: td_api.c,v 7fcbfc13ab62 2008/05/13 01:36:32 tazaki $
+ * $Id: td_api.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -160,7 +160,11 @@ api_init(char *path)
   len = sizeof (serv.sun_family) + strlen (serv.sun_path);
 #endif /* HAVE_SUN_LEN */
 #endif
+#ifdef HAVE_SUN_LEN
   len = serv.sun_len = SUN_LEN(&serv);
+#else
+  len = sizeof (serv.sun_family) + strlen (serv.sun_path);
+#endif /* HAVE_SUN_LEN */
 
   ret = bind(api_sock, (struct sockaddr *)&serv, len);
   if(ret < 0)

@@ -486,24 +486,32 @@ zlog_dump(u_char *buf, int len)
 {
   int i = 0;
   char sbuf[1024];
+  char *ptr;
 
   zlog_info("Packet length = %d", len);
-  zlog_info(" 0  1  2  3  4  5  6  7   8  9  A  B  C  D  E  F");
-  zlog_info("================================================");
+  zlog_info("  0  1  2  3  4  5  6  7   8  9  A  B  C  D  E  F");
+  zlog_info("=================================================");
+
+  ptr = sbuf;
 
   for(i=0; i<len; i++)
     {
-      if(i%16 == 0)
-        sprintf(sbuf, "\n");
-      else if(i%8 == 0)
-        sprintf(sbuf, " ");
+	    int ret = 0;
 
-      sprintf(sbuf, "%02X ", buf[i]);
+	    if(i%8 == 0)
+		    ret = sprintf(ptr, " ");
+	    ptr += ret;
 
+	    ret = sprintf(ptr, "%02X ", buf[i]);
+	    ptr += ret;
+
+	    if(i != 0 && i%16 == 15){
+		    zlog_info("%s", sbuf);
+		    ptr = sbuf;
+	    }
     }
-  zlog_info("%s", sbuf);
 
-  zlog_info("================================================");
+  zlog_info("=================================================");
 
   return 0;
 }
