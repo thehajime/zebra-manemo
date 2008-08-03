@@ -37,6 +37,7 @@ Boston, MA 02110-1301, USA.  */
 #include "zebra/netlink.h"
 #endif /* HAVE_NETLINK */
 #include "zebra/td.h"
+#include "zebra/nina.h"
 
 /* Master of threads. */
 struct thread_master *master;
@@ -132,7 +133,7 @@ sigint (int sig)
 #endif
 
 #ifdef HAVE_KBFD
-  bfd_netlink_finish();
+  bfd_finish();
 #endif /*HAVE_KBFD*/
 
   exit (0);
@@ -284,9 +285,10 @@ main (int argc, char **argv)
   interface_list ();
   route_read ();
 #ifdef HAVE_KBFD
-  bfd_netlink_init();
+  bfd_init();
 #endif /*HAVE_KBFD*/
   td_init();
+  nina_init();
 
   /* Sort VTY commands. */
   sort_node ();
