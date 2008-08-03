@@ -39,8 +39,8 @@ struct bfd_peer
 
 int kernel_bfd_add_peer(struct bfd_peer *, char);
 int kernel_bfd_delete_peer(struct bfd_peer *, char);
-int bfd_netlink_init();
-int bfd_netlink_finish();
+int bfd_init();
+int bfd_finish();
 
 #endif /*HAVE_KBFD*/
 

@@ -23,7 +23,7 @@ Boston, MA 02110-1301, USA.  */
 #ifdef HAVE_KBFD
 
 /* FIXME */
-#include <kbfd_netlink.h>
+#include <kbfd.h>
 
 #include "log.h"
 #include "thread.h"
@@ -427,7 +427,7 @@ DEFUN (bfd_parameter_if,
 
 
 int
-bfd_netlink_init ()
+bfd_init ()
 {
   int ret;
   struct sockaddr_nl snl;
@@ -491,7 +491,7 @@ bfd_netlink_init ()
 }
 
 int
-bfd_netlink_finish ()
+bfd_finish ()
 {
   struct bfd_peer *peer;
   struct listnode *node;

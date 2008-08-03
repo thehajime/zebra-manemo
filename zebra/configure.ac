@@ -559,10 +559,37 @@ dnl ----------------------------
 dnl Check kbfd support.
 dnl ----------------------------
 if test "${enable_kbfd_support}" = "yes"; then
-  if test "x$RT_METHOD" != "xrt_netlink.o"; then
-    AC_MSG_ERROR([kbfd supports only netlink kernel interface.])
-  fi
-  AC_DEFINE(HAVE_KBFD,,KBFD Support)
+
+   AC_CACHE_CHECK(kbfd include file check, kbfd_include,
+   [file="${srcdir}/kbfd.h"
+   if ! test -e $file ; then
+     AC_MSG_ERROR([kbfd requires $file])
+   fi
+   KBFD_VERSION=`sed -ne 's/^#.*KBFD_VERSION.*\"\([^\"]*\)\"$/\1/p' $file`
+   if ! test "${KBFD_VERSION}" = "0.2"; then
+     AC_MSG_ERROR([kbfd version not 0.2, but ${KBFD_VERSION} from $file])
+   fi
+   kbfd_include="$file with version ${KBFD_VERSION}"
+   ])
+
+   AC_CACHE_CHECK(kbfd method check, kbfd_method,
+   [if test "$netlink" = yes; then
+     KBFD_METHOD="bfd.o"
+     kbfd_method="netlink"
+   else
+   case "$host" in
+     *-netbsd*)
+     KBFD_METHOD="bfd_ioctl.o"
+     kbfd_method="ioctl"
+     ;;
+     *)
+         AC_MSG_ERROR([kbfd supports only netlink/ioctl(NetBSD) kernel interface.])
+     ;;
+   esac
+
+   fi])
+AC_SUBST(KBFD_METHOD)
+AC_DEFINE(HAVE_KBFD,,KBFD Support)
 fi
 
 dnl --------------------
