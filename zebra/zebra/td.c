@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: td.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -521,7 +521,9 @@ td_process_tree_discovery(struct td_neighbor *nbr)
             {
               /* draft-td-06 Sec.5, 6 
                  move into new tree with Tree Hop Timer */
+#if 0
               if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED))
+#endif
                 td_change_attach_router(NULL, nbr);
             }
         }
@@ -682,6 +684,29 @@ DEFUN (no_ipv6_nd_td_fixed,
   return CMD_SUCCESS;
 }
 
+#define TIME_BUF 27
+static void
+td_nbr_show_uptime(struct vty *vty, struct td_neighbor *nbr)
+{
+  struct timeval timer_now;
+  time_t clock;
+  struct tm *tm;
+  char timebuf [TIME_BUF];
+  struct thread *thread;
+
+  gettimeofday (&timer_now, NULL);
+
+  if ((thread = nbr->t_expire) != NULL)
+    {
+      clock = thread->u.sands.tv_sec - timer_now.tv_sec;
+      tm = gmtime (&clock);
+      strftime (timebuf, TIME_BUF, "(%H:%M:%S)", tm);
+      vty_out (vty, "%s", timebuf);
+    }
+
+  return;
+}
+
 extern char *td_state_string[];
 DEFUN (show_ipv6_nd_td_neighbor,
        show_ipv6_nd_td_neighbor_cmd,
@@ -697,7 +722,6 @@ DEFUN (show_ipv6_nd_td_neighbor,
   char addrbuf[INET6_ADDRSTRLEN];
   int i, ret;
   struct tm *tm;
-#define TIME_BUF 27
   char tbuf[TIME_BUF];
 
   vty_out(vty, "Default Router List%s", VTY_NEWLINE);
@@ -719,6 +743,9 @@ DEFUN (show_ipv6_nd_td_neighbor,
               td_state_string[nbr->state],
               VTY_NEWLINE);
 
+      vty_out(vty, "Expire after  "); 
+      td_nbr_show_uptime(vty, nbr);
+      vty_out(vty, "%s%s", VTY_NEWLINE, VTY_NEWLINE);
       vty_out(vty, " <State Changes Logs>%s", VTY_NEWLINE);
       vty_out(vty, " State           Time%s", VTY_NEWLINE);
       vty_out(vty, " ----------------------------------------%s", VTY_NEWLINE);

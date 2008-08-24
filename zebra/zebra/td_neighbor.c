@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: td_neighbor.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -37,7 +37,6 @@ td_neighbor_new(struct td_master *td, struct sockaddr_in6 *from,
     int ifindex)
 {
 	struct td_neighbor *new;
-	struct bfd_peer peer;
 
 	new = XCALLOC(MTYPE_TD_NBR, sizeof(struct td_neighbor));
 	if(!new)
@@ -53,13 +52,6 @@ td_neighbor_new(struct td_master *td, struct sockaddr_in6 *from,
 	new->state = NSM_None;
 
 	listnode_add(td->td_nbrs, new);
-
-	/* Add BFD neighbor */
-	memset (&peer, 0, sizeof (struct bfd_peer));
-	memcpy (&peer.su, &new->saddr, sizeof (new->saddr));
-	peer.ifindex = new->ifp->ifindex;
-	peer.type = BFD_PEER_SINGLE_HOP;
-	kernel_bfd_add_peer (&peer, ZEBRA_ROUTE_MNDP);
 
 	return new;
 }
@@ -81,11 +73,13 @@ td_neighbor_free(struct td_master *td, struct td_neighbor *nbr)
 		listnode_delete(td->td_nbrs, nbr);
 
 		/* Delete BFD neighbor */
-		memset (&peer, 0, sizeof (struct bfd_peer));
-		memcpy (&peer.su, &tmp->saddr, sizeof (tmp->saddr));
-		peer.ifindex = tmp->ifp->ifindex;
-		peer.type = BFD_PEER_SINGLE_HOP;
-		kernel_bfd_delete_peer (&peer, ZEBRA_ROUTE_MNDP);
+		if(nbr->tio){
+			memset (&peer, 0, sizeof (struct bfd_peer));
+			memcpy (&peer.su, &tmp->saddr, sizeof (tmp->saddr));
+			peer.ifindex = tmp->ifp->ifindex;
+			peer.type = BFD_PEER_SINGLE_HOP;
+			kernel_bfd_delete_peer (&peer, ZEBRA_ROUTE_MNDP);
+		}
 
 		XFREE(MTYPE_TD_NBR, nbr);
 		return;
@@ -270,7 +264,8 @@ nsm_leave_ar(struct td_neighbor *nbr)
 			assert(nbr->t_holddown == NULL);
 
 			/* update seq num by odd number */
-			nbr->tio->seq++;
+			if(nbr->tio)
+				nbr->tio->seq++;
 
 			nbr->t_holddown = thread_add_timer(master, nsm_holddown_timer, nbr, 
 			    TD_HOLDDOWN_TIMER_DEFAULT);

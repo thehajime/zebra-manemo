@@ -202,7 +202,7 @@ main (int argc, char **argv)
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
 
   zlog_default = openzlog (progname, ZLOG_STDOUT, ZLOG_ZEBRA,
-			   LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
+			   LOG_NDELAY|LOG_PID, LOG_DAEMON);
 
   while (1) 
     {

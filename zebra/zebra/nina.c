@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: nina.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -282,6 +282,7 @@ nina_delay_na_timer(struct thread *thread)
 	struct nina_entry *nina;
 	struct route_node *rn, *next;
 
+	nina_top->t_delay = NULL;
 	td_nbr = THREAD_ARG(thread); 
 	if(!td_nbr)
 		return 0;
@@ -290,7 +291,6 @@ nina_delay_na_timer(struct thread *thread)
 		return 0;
 
 	if(nina_top) {
-		nina_top->t_delay = NULL;
 
 		/* connected list */
 		for(rn = route_top(nina_top->connected); rn; rn = route_next (rn)) {
@@ -318,7 +318,11 @@ nina_delay_na_timer(struct thread *thread)
 				nina->lifetime = 0;
 				nina_send_packet(nina_top->sock, td_nbr->ifp, 
 				    &td_nbr->saddr.sin6_addr, nina);
+
+				/* Free the memory  */
+				rn->info = NULL;
 				route_unlock_node(rn);
+				XFREE(MTYPE_NINA_ENTRY, nina);
 			}
 		}
 	}
@@ -1031,6 +1035,8 @@ DEFUN (show_ipv6_nd_nina,
     "Neighbor discovery\n"
     "NINA(Network In Node Advertisement)\n")
 {
+	char addrbuf[INET6_ADDRSTRLEN];
+	struct listnode *node;
 
 	if(!nina_top){
 		vty_out(vty, "No NINA process%s", VTY_NEWLINE);
@@ -1045,6 +1051,17 @@ DEFUN (show_ipv6_nd_nina,
 	nina_show_entry_list_vty(vty, nina_top->reachable);
 	vty_out(vty, "%sUnreachable List %s", VTY_NEWLINE, VTY_NEWLINE);
 	nina_show_entry_list_vty(vty, nina_top->unreachable);
+
+	vty_out(vty, "Neighbors: %s", VTY_NEWLINE);
+	for(node = listhead(nina_top->nbrs); node; nextnode(node)) {
+		struct nina_neighbor *nbr = getdata(node);
+		vty_out(vty, " %-24s %s%s", 
+		    inet_ntop(nbr->ip6.family, 
+                        &nbr->ip6.u.prefix6,
+                        addrbuf, sizeof(addrbuf)),
+		    nbr->ifp->name,
+		    VTY_NEWLINE);
+	}
 
 	return CMD_SUCCESS;
 }

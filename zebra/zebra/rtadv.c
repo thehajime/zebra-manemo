@@ -34,6 +34,8 @@ Boston, MA 02110-1301, USA.  */
 #include "zebra/debug.h"
 #include "zebra/td.h"
 #include "zebra/td_neighbor.h"
+#include "zebra/nina.h"
+#include "zebra/bfd.h"
 
 #if defined (HAVE_IPV6) && defined (RTADV)
 
@@ -356,6 +358,7 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
   struct td_neighbor *nbr;
   struct zebra_if *zif;
   char abuf[INET6_ADDRSTRLEN];
+  int new = 0;
 
   zlog_info ("Router advertisement received");
 
@@ -379,11 +382,12 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
 
       /* New_Neighbor */
       td_nsm_event(nbr, NSM_NewNeighbor);
+      new = 1;
     }
 
   /* regist expire timer */
   nbr->t_expire = thread_add_timer(master, td_ra_timeout, nbr, 
-                                   rtadv->nd_ra_router_lifetime);
+      ntohs(rtadv->nd_ra_router_lifetime));
 
   /* reachable time */
   /* retransmit timer */
@@ -439,6 +443,16 @@ rtadv->nd_ra_retransmit;
       if(IS_ZEBRA_DEBUG_EVENT)
         zlog_info("TD: tio depth is %hhu(via %s)", 
              nbr->tree_depth, nbr->ifp->name);
+
+      if(new){
+	      struct bfd_peer peer;
+	      /* Add BFD neighbor */
+	      memset (&peer, 0, sizeof (struct bfd_peer));
+	      memcpy (&peer.su, &nbr->saddr, sizeof (nbr->saddr));
+	      peer.ifindex = nbr->ifp->ifindex;
+	      peer.type = BFD_PEER_SINGLE_HOP;
+	      kernel_bfd_add_peer (&peer, ZEBRA_ROUTE_MNDP);
+      }
     }
 
   /* Tree Discovery Process */
