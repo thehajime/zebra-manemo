@@ -284,7 +284,17 @@ rtadv_send_packet (int sock, struct interface *ifp,
   cmsgptr->cmsg_level = IPPROTO_IPV6;
   cmsgptr->cmsg_type = IPV6_PKTINFO;
   pkt = (struct in6_pktinfo *) CMSG_DATA (cmsgptr);
-  memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+  /* set link-local address */
+  for(node = listhead(ifp->connected); node; nextnode(node)) {
+          struct connected *ifc = getdata(node);
+          struct prefix *p = ifc->address;
+          if(p->family != AF_INET6)
+		  continue;
+          if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
+		  memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+		  break;
+	  }
+  }
   pkt->ipi6_ifindex = ifp->ifindex;
 
   ret = sendmsg (sock, &msg, 0);
@@ -362,6 +372,12 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
 
   zlog_info ("Router advertisement received");
 
+  if(!IN6_IS_ADDR_LINKLOCAL(&from->sin6_addr)) {
+	  zlog_warn("RA: src %s is not link-local",
+	      inet_ntop(AF_INET6, &from->sin6_addr, abuf, sizeof(abuf)));
+	  return;
+  }
+
   zif = ifp->info;
 
   /* FIXME. TD_neighbor?'s name */
@@ -388,6 +404,7 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
   /* regist expire timer */
   nbr->t_expire = thread_add_timer(master, td_ra_timeout, nbr, 
       ntohs(rtadv->nd_ra_router_lifetime));
+  nbr->lifetime = ntohs(rtadv->nd_ra_router_lifetime);
 
   /* reachable time */
   /* retransmit timer */
@@ -489,6 +506,7 @@ rtadv_process_packet (u_char *buf, int len, struct sockaddr_in6 *from,
   struct icmp6_hdr *icmph;
   struct interface *ifp;
   struct zebra_if *zif;
+  struct listnode *node;
 
   /* Interface search. */
   ifp = if_lookup_by_index (ifindex);
@@ -500,6 +518,18 @@ rtadv_process_packet (u_char *buf, int len, struct sockaddr_in6 *from,
 
   if (if_is_loopback (ifp))
     return;
+
+  /* Discard self packet */
+  for(node = listhead(ifp->connected); node; nextnode(node)) {
+          struct connected *ifc = getdata(node);
+          struct prefix *p = ifc->address;
+	  if(IPV6_ADDR_SAME(&from->sin6_addr, &p->u.prefix6)){
+		  if(IS_ZEBRA_DEBUG_EVENT)
+			  zlog_warn("RA: recv from self. discard");
+		  return;
+	  }
+  }
+
 
   /* Check interface configuration. */
   zif = ifp->info;
