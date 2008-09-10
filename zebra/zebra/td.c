@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
+ * $Id: td.c,v 3e68a36ccb7f 2008/09/10 03:13:01 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -29,6 +29,7 @@
 #include "zebra/td_api.h"
 #include "zebra/rtadv.h"
 #include "zebra/nina.h"
+#include "zebra/ioctl.h"
 
 #if defined(__FreeBSD__) || defined(__NetBSD__)
 const struct in6_addr in6addr_linklocal_allrouters =
@@ -254,6 +255,16 @@ td_ra_timeout(struct thread *thread)
 static int
 td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
 {
+	char buf[INET6_ADDRSTRLEN];
+
+	if(IS_ZEBRA_DEBUG_EVENT){
+		zlog_info("Chg AR: old %s => new %s%%%s",
+		    old ? td_neighbor_print(old) : "NULL", 
+		    new ? inet_ntop(AF_INET6, &new->saddr.sin6_addr, buf, sizeof(buf)) 
+		    : "NULL",
+		    new ? new->ifp->name : "");
+	}
+
   td->attach_rtr = new;
 
   if(old && old->tio)
@@ -293,6 +304,8 @@ td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
 static int
 td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 {
+	struct timeval timer_now;
+
   /* if G(grounded) flag is set, this tree is assumed 
      as a Internet GW */
   if(nbr1->tio && (nbr1->tio->flags & TIO_BASE_FLAG_GROUNDED))
@@ -315,6 +328,19 @@ td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
   /* depth */
   if(nbr1->tree_depth != nbr2->tree_depth)
     return (nbr1->tree_depth - nbr2->tree_depth);
+
+  /* which miscount of nbr is much more? (not in draft, but original) */
+  gettimeofday (&timer_now, NULL);
+
+  if (nbr1->t_expire && nbr2->t_expire) {
+      time_t t1 = nbr1->lifetime - (nbr1->t_expire->u.sands.tv_sec - timer_now.tv_sec);
+      time_t t2 = nbr2->lifetime - (nbr2->t_expire->u.sands.tv_sec - timer_now.tv_sec);
+
+      if((t1 > 60) && (t2 < 60))
+	      return 1;
+      if((t1 < 60) && (t2 > 60))
+	      return -1;
+  }
 
   /* preference */
 
@@ -456,92 +482,105 @@ td_process_prefix_info(struct nd_opt_prefix_info *pi, struct interface *ifp)
 int
 td_process_tree_discovery(struct td_neighbor *nbr)
 {
-  int ret;
+	int ret;
 
-  if(td->attach_rtr)
-    {
-      /* same router */
-      if(memcmp(&td->attach_rtr->saddr.sin6_addr, &nbr->saddr.sin6_addr, 
-                sizeof(struct in6_addr)) == 0)
-        {
-          /* FIXME(it doesn't work cause of (td->attach_rtr = nbr) */
-          if(td_tio_diff(td->attach_rtr, nbr))
-            {
-              /* triggered update */
-              zlog_info("TD: %s triggered update", td_neighbor_print(nbr));
+	if(td->attach_rtr)
+	{
+		/* same router */
+		if(memcmp(&td->attach_rtr->saddr.sin6_addr, &nbr->saddr.sin6_addr, 
+			sizeof(struct in6_addr)) == 0)
+		{
+			/* FIXME(it doesn't work cause of (td->attach_rtr = nbr) */
+			if(td_tio_diff(td->attach_rtr, nbr))
+			{
+				/* triggered update */
+				zlog_info("TD: %s triggered update", td_neighbor_print(nbr));
 
-              rtadv_event (RTADV_TIMER, 1);
-            }
-        }
-      /* from same tree */
-      else if(TD_TREE_SAME(td->attach_rtr, nbr))
-        {
-          /* draft-td-06 Sec.5, 5 */
-          if(td->attach_rtr->tree_depth >= nbr->tree_depth)
-            {
-              ret = td_tio_cmp(td->attach_rtr, nbr);
-              if(ret > 0)
-                {
-                  /* move in current tree with NO_DELAY */
-                  td_change_attach_router(td->attach_rtr, nbr);
-                }
-            }
-          else
-            {
-              /* draft-td-06 Sec.5, 5 ignore RAs */
-            }
-        }
-      /* from different tree */
-      else
-        {
-          ret = td_tio_cmp(td->attach_rtr, nbr);
-          if(ret > 0)
-            {
-              /* draft-td-06 Sec.5, 6 
-                 move into new tree with Tree Hop Timer */
-              td_change_attach_router(td->attach_rtr, nbr);
-            }
-        }
-    }
-  else
-    {
-      /* In case of Parent has TIO */
-      if(nbr->tio)
-        {
-          /* if recvd tree-id is own tree-id, it seems to loop, 
-             so avoid to attach */
-          if(memcmp(td->tio.tree_id, TD_TREE_ID(nbr), 
-                    sizeof(nbr->tio->tree_id)) == 0)
-            {
-              if(IS_ZEBRA_DEBUG_EVENT)
-                zlog_info("TD: It looks like formed loop(%s). discard",
-                     td_neighbor_print(nbr));
-            }
-          else
-            {
-              /* draft-td-06 Sec.5, 6 
-                 move into new tree with Tree Hop Timer */
+				rtadv_event (RTADV_TIMER, 1);
+			}
+		}
+		/* from same tree */
+		else if(TD_TREE_SAME(td->attach_rtr, nbr))
+		{
+			/* draft-td-06 Sec.5, 5 */
+			if(td->attach_rtr->tree_depth >= nbr->tree_depth)
+			{
+				ret = td_tio_cmp(td->attach_rtr, nbr);
+				if(ret > 0)
+				{
+					/* move in current tree with NO_DELAY */
+					td_change_attach_router(td->attach_rtr, nbr);
+				}
+			}
+			/* In caes of AR change (new no TIO RA) */
+			else if(!td->attach_rtr->tio && !nbr->tio){
+				/* move in current tree with NO_DELAY */
+				td_change_attach_router(td->attach_rtr, nbr);
+			}
+			else
+			{
+				/* draft-td-06 Sec.5, 5 ignore RAs */
+			}
+		}
+		/* from different tree */
+		else
+		{
+			ret = td_tio_cmp(td->attach_rtr, nbr);
+			if(ret > 0)
+			{
+				/* draft-td-06 Sec.5, 6 
+				   move into new tree with Tree Hop Timer */
+				td_change_attach_router(td->attach_rtr, nbr);
+			}
+		}
+	}
+	else
+	{
+		/* In case of Parent has TIO */
+		if(nbr->tio)
+		{
+			/* if recvd tree-id is own tree-id, it seems to loop, 
+			   so avoid to attach */
+			if(memcmp(td->tio.tree_id, TD_TREE_ID(nbr), 
+				sizeof(nbr->tio->tree_id)) == 0)
+			{
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("TD: It looks like formed loop(%s). discard",
+					    td_neighbor_print(nbr));
+
+				/* if loop is detected, try to reset egress 
+				   interface, and expect another 802.11 AP */
+				if_unset_flags (nbr->ifp, IFF_UP);
+				if_set_flags (nbr->ifp, IFF_UP);
+			}
+			else
+			{
+				/* draft-td-06 Sec.5, 6 
+				   move into new tree with Tree Hop Timer */
 #if 0
-              if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED))
+				/* ONLY prevent from loop during E-E */
+				if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED))
 #endif
-                td_change_attach_router(NULL, nbr);
-            }
-        }
-      else
-        {
-          td_change_attach_router(NULL, nbr);
-        }
-    }
+					if(nbr->state != NSM_HeldDown)
+						td_change_attach_router(NULL, nbr);
+			}
+		}
+		else
+		{
+			if(nbr->state != NSM_HeldDown)
+				td_change_attach_router(NULL, nbr);
+		}
+	}
 
-  if(nbr->state == NSM_Current && nbr->tio){
-	  if(nina_top && !nina_top->t_delay) {
-		  nina_top->t_delay = thread_add_timer(master, nina_delay_na_timer
-		      , nbr, (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
-	  }
-  }
+	if(nbr->state == NSM_Current && nbr->tio){
+		if(nina_top && !nina_top->t_delay) {
+			nina_top->t_delay = thread_add_timer(master, nina_delay_na_timer
+			    , nbr, (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
+		}
+	}
 
 
-  return 0;
+	return 0;
 }
 
 
@@ -784,9 +823,12 @@ DEFUN (show_ipv6_nd_td,
   vty_out(vty, " MR Preference %d%s",td->tio.mr_pref, VTY_NEWLINE);
   vty_out(vty, " Tree Preference %d%s",td->tio.tree_pref, VTY_NEWLINE);
   vty_out(vty, " Tree Delay %d%s",td->tio.delay, VTY_NEWLINE);
-  vty_out(vty, " Tree ID %s%s", 
+  vty_out(vty, " Tree ID %s%s", (td->attach_rtr && td->attach_rtr->tio) ?
+          inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->tio->tree_id, 
+	      buf, sizeof(buf)) :
           inet_ntop(AF_INET6, (struct in6_addr *)&td->tio.tree_id, 
-                    buf, sizeof(buf)), VTY_NEWLINE);
+                    buf, sizeof(buf)), 
+      VTY_NEWLINE);
 
   vty_out(vty, "%s", VTY_NEWLINE);
   vty_out(vty, " Number of Neighbors %d%s", listcount(td->td_nbrs), VTY_NEWLINE);
@@ -794,7 +836,7 @@ DEFUN (show_ipv6_nd_td,
       td->attach_rtr ? 
       inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->saddr.sin6_addr, 
 	  buf, sizeof(buf)) : "(Floated)",
-      (td->attach_rtr && td->attach_rtr->tio) ? "" : "Non TIO AR", VTY_NEWLINE);
+      (td->attach_rtr && td->attach_rtr->tio) ? "" : " Non TIO AR", VTY_NEWLINE);
   vty_out(vty, " Flags: %s%s", CHECK_FLAG(td->flags, TD_IS_FIXED_ROUTER) ? 
           "Fixed Router" : " ", VTY_NEWLINE);
   vty_out(vty, " Last Attachment Tree %s, seqnum=%d%s", 
@@ -883,11 +925,14 @@ td_init()
   /* draft-td-06 Sec.5, 1 */
   td->tio.delay = TIO_TREE_DELAY_DEFAULT;
   td->tio.seq = 0;
+
   /* assign tree-id of own tree from HoA. 
-     Currently, pick from arbitrary link-local addr(FIXME)  */
+     Currently, pick from interface mip0(SHISA only)(FIXME)  */
   for(node = listhead(iflist); node; nextnode(node))
     {
       ifp = getdata(node);
+      if(strncmp(ifp->name, "mip0", 4))
+	      continue;
 
       if(if_is_loopback(ifp))
         continue;
@@ -900,7 +945,7 @@ td_init()
           if(p->family != AF_INET6)
             continue;
 
-          if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)))
+          if(!IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)))
             {
               memcpy(&td->tio.tree_id, &p->u.prefix6, 
                      sizeof(struct in6_addr));
@@ -908,6 +953,10 @@ td_init()
             }
         }
     }
+
+  if(memcmp(&td->tio.tree_id, &in6addr_any,
+	  sizeof(struct in6_addr)) == 0)
+	  zlog_warn("TD: counldn't find HoA for TreeID");
 
   td->tio.tree_pref = 0;
   td->tio.boot_time = (random() & 0x00FFFFFF);
