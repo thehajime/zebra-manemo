@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
+ * $Id: nina.c,v a6518ce927ca 2008/09/10 03:17:58 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -248,6 +248,17 @@ nina_send_packet(int sock, struct interface *ifp,
 	pkt = (struct in6_pktinfo *) CMSG_DATA (cmsgptr);
 	memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
 	pkt->ipi6_ifindex = ifp->ifindex;
+	/* set link-local address */
+	for(node = listhead(ifp->connected); node; nextnode(node)) {
+		struct connected *ifc = getdata(node);
+		struct prefix *p = ifc->address;
+		if(p->family != AF_INET6)
+			continue;
+		if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
+			memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+			break;
+		}
+	}
 
 	ret = sendmsg (sock, &msg, 0);
 	if(ret < 0)
@@ -859,6 +870,9 @@ nina_create()
 		if (!CHECK_FLAG(zif->mndp.flags, MNDP_INGRESS_FLAG))
 			continue;
 
+		/* E-E attachment support(08/08/31) */
+		if (CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG))
+			continue;
 
 		for (node2 = listhead(ifp->connected); node2; nextnode(node2)) {
 			c = (struct connected *) getdata(node2);
