@@ -1,7 +1,7 @@
 /* 
  * API interface for external application
  *
- * $Id: td_api.h,v 7fcbfc13ab62 2008/05/13 01:36:32 tazaki $
+ * $Id: td_api.h,v 2b69ec854a33 2008/09/10 03:13:29 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -18,6 +18,8 @@
 /* Command Definition */
 #define  MNDP_API_TD_GET_MR_DEPTH       0
 #define  MNDP_API_TD_SET_HOA            1
+#define  MNDP_API_TD_ADD_ROUTE          2
+#define  MNDP_API_TD_DEL_ROUTE          3
 
 struct api_cmd
 {

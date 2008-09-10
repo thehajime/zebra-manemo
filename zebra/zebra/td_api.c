@@ -1,7 +1,7 @@
 /* 
  * API interface for external application
  *
- * $Id: td_api.c,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: td_api.c,v 2b69ec854a33 2008/09/10 03:13:29 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -17,13 +17,16 @@
 #include "log.h"
 #include "vty.h"
 #include "if.h"
+#include "prefix.h"
 
+#include "rib.h"
 #include "td.h"
 #include "td_api.h"
 
 int api_sock = 0;
 extern struct thread_master *master;
 extern struct td_master *td;
+extern struct prefix_ipv6 def_route;
 static int peer_sock;
 
 static int
@@ -62,6 +65,7 @@ api_parse(int sock, char *buf, int len)
 {
   struct api_cmd *req;
   char abuf[INET6_ADDRSTRLEN];
+  int ifindex;
 
   req = (struct api_cmd *)buf;
 
@@ -75,6 +79,18 @@ api_parse(int sock, char *buf, int len)
              sizeof(td->tio.tree_id));
       zlog_info("Notified HoA as TreeID (%s)", 
            inet_ntop(AF_INET6, &td->tio.tree_id, abuf, sizeof(abuf)));
+      break;
+    case MNDP_API_TD_ADD_ROUTE:
+	    ifindex = *(int *)(buf + sizeof(struct api_cmd));
+	    rib_add_ipv6(ZEBRA_ROUTE_SHISA, 0, &def_route, NULL,
+		ifindex, 0);
+	    zlog_info("SHISA route add ifindex=%d", ifindex);
+      break;
+    case MNDP_API_TD_DEL_ROUTE:
+	    ifindex = *(int *)(buf + sizeof(struct api_cmd));
+	    rib_delete_ipv6(ZEBRA_ROUTE_SHISA, 0, &def_route, NULL,
+		ifindex, 0);
+	    zlog_info("SHISA route delete ifindex=%d", ifindex);
       break;
     default:
       break;
