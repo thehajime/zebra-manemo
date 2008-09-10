@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.h,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: td_neighbor.h,v 701125187d39 2008/09/10 03:15:01 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -53,7 +53,7 @@ struct td_neighbor
 	u_int8_t tree_depth;
 	u_int8_t state;
 	u_int8_t rsv1;
-	u_int16_t rsv2;
+	u_int16_t lifetime;
 	struct td_nbr_log state_log[MAX_NBR_STATE_LOG];
 	u_int32_t changes;
 };
