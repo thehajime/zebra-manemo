@@ -55,6 +55,7 @@ struct
   {ZEBRA_ROUTE_OSPF6,   110},
   {ZEBRA_ROUTE_BGP,      20  /* IBGP is 200. */},
   {ZEBRA_ROUTE_MNDP,     50},
+  {ZEBRA_ROUTE_SHISA,     1},
 };
 
 /* Vector for routing table.  */
@@ -686,7 +687,7 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
     {
     case NEXTHOP_TYPE_IFINDEX:
       ifp = if_lookup_by_index (nexthop->ifindex);
-      if (ifp && if_is_up (ifp))
+      if (ifp && (if_is_up (ifp) || !strncmp(ifp->name, "mtun", 4)))
 	SET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
       else
 	UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);

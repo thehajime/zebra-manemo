@@ -52,6 +52,8 @@ route_type_str (u_char type)
       return "bgp";
     case ZEBRA_ROUTE_MNDP:
       return "mndp";
+    case ZEBRA_ROUTE_SHISA:
+      return "shisa";
     default:
       return "unknown";
     }
@@ -83,6 +85,8 @@ route_type_char (u_char type)
       return 'B';
     case ZEBRA_ROUTE_MNDP:
       return 'N';
+    case ZEBRA_ROUTE_SHISA:
+      return 'M';
     default:
       return '?';
     }
@@ -1036,7 +1040,8 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
 	  || rib->type == ZEBRA_ROUTE_BGP
-	  || rib->type == ZEBRA_ROUTE_MNDP)
+	  || rib->type == ZEBRA_ROUTE_MNDP
+	  || rib->type == ZEBRA_ROUTE_SHISA)
 	{
 	  time_t uptime;
 	  struct tm *tm;
@@ -1215,7 +1220,8 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
 	  || rib->type == ZEBRA_ROUTE_BGP
-	  || rib->type == ZEBRA_ROUTE_MNDP)
+	  || rib->type == ZEBRA_ROUTE_MNDP
+	  || rib->type == ZEBRA_ROUTE_SHISA)
 	{
 	  time_t uptime;
 	  struct tm *tm;
