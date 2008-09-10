@@ -131,6 +131,11 @@ int routing_sock = -1;
 /* Yes I'm checking ugly routing socket behavior. */
 /* #define DEBUG */
 
+static struct sockaddr_in6 sin6_loopback = {
+	sizeof(struct sockaddr_in6), AF_INET6, 0, 0,
+	IN6ADDR_LOOPBACK_INIT
+};
+
 /* Supported address family check. */
 static int
 af_check (int family)
@@ -547,6 +552,7 @@ rtm_write (int message,
 #ifdef HAVE_IPV6
   struct sockaddr_in6 tmp_gate6;
 #endif /* HAVE_IPV6 */
+  struct sockaddr_dl so_dl;
 
   /* Sequencial number of routing message. */
   static int msg_seq = 0;
@@ -609,7 +615,16 @@ rtm_write (int message,
           zlog_warn ("no gateway found for interface index %d", index);
           return -1;
         }
-      gate = (union sockunion *) & ifp->sdl;
+      if(ifp->sdl.sdl_alen)
+	      gate = (union sockunion *) & ifp->sdl;
+      else {
+	      memset(&so_dl, 0, sizeof(struct sockaddr_dl));
+	      so_dl.sdl_family = AF_LINK;
+	      so_dl.sdl_len = sizeof(struct sockaddr_dl);
+	      so_dl.sdl_index = index;
+	      msg.rtm.rtm_addrs |= RTA_IFP;
+	      gate = (union sockunion *)&sin6_loopback;
+      }
     }
 
   if (mask)
@@ -648,6 +663,7 @@ rtm_write (int message,
   SOCKADDRSET (dest, RTA_DST);
   SOCKADDRSET (gate, RTA_GATEWAY);
   SOCKADDRSET (mask, RTA_NETMASK);
+  SOCKADDRSET ((union sockunion *)&so_dl, RTA_IFP);
 
   msg.rtm.rtm_msglen = pnt - (caddr_t) &msg;
 
