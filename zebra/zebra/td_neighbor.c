@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v 1c6d87cc02b7 2008/08/24 05:49:18 tazaki $
+ * $Id: td_neighbor.c,v b2fc18e09a28 2008/09/10 03:14:53 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -195,7 +195,7 @@ nsm_join_ar(struct td_neighbor *nbr)
 			sizeof(nbr->tio->tree_id)))
 		{
 			/* Avoid add default route when MR is root-MR */
-			if(td->tio.depth > 1) {
+			if(td->tio.depth > 0) {
 				ret = rib_add_ipv6(ZEBRA_ROUTE_MNDP, 0, &def_route, &nbr->saddr.sin6_addr, 
 				    nbr->ifp->ifindex, 0);
 				if(ret != 0) {
@@ -317,7 +317,7 @@ nsm_treehop_expired(struct td_neighbor *nbr)
 	/* FIXME */
 
 	/* Avoid add default route when MR is root-MR */
-	if(td->tio.depth > 1)
+	if(td->tio.depth > 0)
 		ret = rib_add_ipv6(ZEBRA_ROUTE_MNDP, 0, &def_route, &nbr->saddr.sin6_addr,
 		    nbr->ifp->ifindex, 0);
 
@@ -485,6 +485,10 @@ td_nsm_event(struct td_neighbor *nbr, int nsm_event)
 		nbr->state_log[nbr->changes % MAX_NBR_STATE_LOG].state = old_state;
 		time(&nbr->state_log[nbr->changes % MAX_NBR_STATE_LOG].time);
 		nbr->changes++;
+	}
+
+	if(old_state == NSM_HeldDown && nbr->state != NSM_HeldDown){
+		td_process_tree_discovery(nbr);
 	}
 
 	return 0;
