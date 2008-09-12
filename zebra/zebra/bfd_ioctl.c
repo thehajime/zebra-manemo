@@ -109,7 +109,7 @@ kernel_bfd_read (struct thread *th)
 
 	sock = THREAD_FD (th);
 
-	if(bfd_ioctl_sock)
+	if(bfd_ioctl_sock < 0)
 		return 0;
 
 	peer = XCALLOC(MTYPE_BFD_PEER, sizeof(*peer));
@@ -131,7 +131,7 @@ bfd_ioctl_peer (int cmd, struct bfd_peer *peer)
 	int size;
 	struct bfd_nl_peerinfo req;
 
-	if(bfd_ioctl_sock)
+	if(bfd_ioctl_sock < 0)
 		return -1;
 
 	if (peer->su.sa.sa_family == AF_INET)
@@ -300,7 +300,7 @@ bfd_ioctl_peer_list (struct vty *vty)
 	int i;
 	struct bfd_nl_peerinfo *peer, *org;
 
-	if(bfd_ioctl_sock)
+	if(bfd_ioctl_sock < 0)
 		return -1;
 
 	ret = ioctl(bfd_ioctl_sock, BFD_GETPEER_NUM, &num);
@@ -354,7 +354,7 @@ DEFUN (bfd_parameter_if,
 	int ret;
 	struct bfd_nl_linkinfo req;
 
-	if(bfd_ioctl_sock)
+	if(bfd_ioctl_sock < 0)
 		return CMD_WARNING;
 
 	ifp = (struct interface *) vty->index;
@@ -384,7 +384,7 @@ bfd_ioctl_set_flag(unsigned long flags)
 {
 	int ret;
 
-	if(bfd_ioctl_sock)
+	if(bfd_ioctl_sock < 0)
 		return -1;
 
 	ret = ioctl(bfd_ioctl_sock, BFD_SETFLAG, &bfd_debug_flag);

@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 3e68a36ccb7f 2008/09/10 03:13:01 tazaki $
+ * $Id: td.c,v 830368f9b0a6 2008/09/12 03:03:34 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -130,6 +130,10 @@ td_make_ti_option(struct nd_opt_tree_discovery *tio)
       /* copy from Attachment Router TIO */
       memcpy(tio, td->attach_rtr->tio, td->attach_rtr->tio->len * 8);
       td->tio.depth = td->attach_rtr->tree_depth +1; 
+      if(td->tio.depth == 0){
+	      td->tio.depth = 1;
+	      zlog_warn("Tree depth would be wrapped");
+      }
       /* update tio field */
       tio->depth = td->tio.depth;
       tio->mr_pref = td->tio.mr_pref;
@@ -285,6 +289,10 @@ td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
   else
     td->tio.depth = 1; 
 
+  if(td->tio.depth == 0){
+	  td->tio.depth = 1;
+	  zlog_warn("%s: Tree depth would be wrapped", __func__);
+  }
 
   if(old)
     td_nsm_event(old, NSM_LeaveAR);

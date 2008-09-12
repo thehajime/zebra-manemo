@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v a6518ce927ca 2008/09/10 03:17:58 tazaki $
+ * $Id: nina.c,v 830368f9b0a6 2008/09/12 03:03:34 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -347,8 +347,8 @@ nina_destroy_timer(struct thread *thread)
 	struct nina_entry *nina;
 	struct route_node *rn;
 
-
 	if(nina_top) {
+		nina_top->t_destroy = NULL;
 		/* reachable list */
 		for(rn = route_top(nina_top->reachable); rn; rn = route_next (rn)) {
 			if((nina = rn->info) != NULL) {
