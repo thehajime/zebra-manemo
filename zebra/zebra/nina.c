@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 830368f9b0a6 2008/09/12 03:03:34 tazaki $
+ * $Id: nina.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -286,7 +286,7 @@ nina_send_packet(int sock, struct interface *ifp,
 	return;
 }
 
-int
+static int
 nina_delay_na_timer(struct thread *thread)
 {
 	struct td_neighbor *td_nbr;
@@ -441,10 +441,15 @@ nina_nino_expire(struct thread *thread)
 	struct nina_entry *nina;
 	struct route_node *rn;
 	struct prefix p;
+	char abuf[INET6_ADDRSTRLEN];
 	int ret;
 
 	nina = thread->arg;
 	nina->t_expire = NULL;
+
+	zlog_info("NINO: expire prefix %s/%d on reachable list", 
+	    inet_ntop(AF_INET6, &nina->rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
+	    nina->rn->p.prefixlen);
 
 	prefix_copy(&p, &nina->rn->p);
 	/* Delete from reachable list */
@@ -480,6 +485,18 @@ nina_nino_expire(struct thread *thread)
 
 	return 0;
 }
+
+void
+nina_set_delay_na_timer(struct td_neighbor *nbr)
+{
+	if(nina_top && !nina_top->t_delay){
+		long delay;
+		delay = (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000;
+		nina_top->t_delay = thread_add_timer(master, 
+		    nina_delay_na_timer, nbr, delay ? delay : 1);
+	}
+}
+
 
 static void
 nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino)
@@ -528,11 +545,10 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			reach->t_expire = thread_add_timer(master, 
 			    nina_nino_expire, reach, reach->lifetime);
 
-			if(!nina_top->t_delay) {
-				nina_top->t_delay = thread_add_timer(master, 
-				    nina_delay_na_timer, td->attach_rtr,
-				    (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
-			}
+#if 0
+			/* Too much advertisement */
+			nina_set_delay_na_timer(td->attach_rtr);
+#endif
 		}
 	}
 	else {
@@ -549,11 +565,7 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 		reach->rn = rn;
 		rn->info = reach;
 
-		if(!nina_top->t_delay) {
-			nina_top->t_delay = thread_add_timer(master, 
-			    nina_delay_na_timer, td->attach_rtr,
-			    (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
-		}
+		nina_set_delay_na_timer(td->attach_rtr);
 
 		/* Add RIB */
 		ret = rib_add_ipv6(ZEBRA_ROUTE_MNDP, 0,

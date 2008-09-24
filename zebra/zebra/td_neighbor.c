@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v b2fc18e09a28 2008/09/10 03:14:53 tazaki $
+ * $Id: td_neighbor.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -187,12 +187,14 @@ nsm_join_ar(struct td_neighbor *nbr)
 {
 	u_int32_t delay;
 	int ret;
+	char buf[INET6_ADDRSTRLEN];
+	char buf2[INET6_ADDRSTRLEN];
 
 	if(nbr->state == NSM_Candidate)
 	{
 		/* move within same tree */
-		if(nbr->tio && memcmp(nbr->tio->tree_id, td->last_tree_id, 
-			sizeof(nbr->tio->tree_id)))
+		if(nbr->tio && (memcmp(nbr->tio->tree_id, td->last_tree_id, 
+			    sizeof(nbr->tio->tree_id)) == 0))
 		{
 			/* Avoid add default route when MR is root-MR */
 			if(td->tio.depth > 0) {
@@ -217,7 +219,13 @@ nsm_join_ar(struct td_neighbor *nbr)
 			else
 				delay = 0;
 
-			zlog_info("nbr->tio = %p, delay = %d", nbr->tio, delay);
+			zlog_info("nbr->tio = %p, OldTID = %s, NewTID, = %s delay = %d"
+			    , nbr->tio, 
+			    inet_ntop(AF_INET6, &td->last_tree_id, buf, sizeof(buf)),
+			    nbr->tio ? 
+			    inet_ntop(AF_INET6, &nbr->tio->tree_id, buf2, sizeof(buf2))
+			    : "NULL", 
+			    delay);
           
 			nbr->t_treehop = thread_add_timer(master, nsm_treehop_timer, nbr, delay);
 			return NSM_HeldUp;
@@ -323,8 +331,7 @@ nsm_treehop_expired(struct td_neighbor *nbr)
 
 	/* start nina advert timer */
 	if(nina_top && !nina_top->t_delay) {
-		nina_top->t_delay = thread_add_timer(master, nina_delay_na_timer
-		    , nbr, (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
+		nina_set_delay_na_timer(nbr);
 	}
 
 	return 0;

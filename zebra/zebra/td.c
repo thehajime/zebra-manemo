@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 830368f9b0a6 2008/09/12 03:03:34 tazaki $
+ * $Id: td.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -245,8 +245,10 @@ td_ra_timeout(struct thread *thread)
   nbr = thread->arg;
   nbr->t_expire = NULL;
 
-  if(td->attach_rtr == nbr)
+  if(td->attach_rtr == nbr){
+    zlog_info("Chg Tree: 6");
     td_change_attach_router(nbr, NULL);
+  }
 
   td_nsm_event(nbr, NSM_RA_Timeout);
 
@@ -260,13 +262,20 @@ static int
 td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
 {
 	char buf[INET6_ADDRSTRLEN];
+	char buf2[INET6_ADDRSTRLEN];
+	char buf3[INET6_ADDRSTRLEN];
 
 	if(IS_ZEBRA_DEBUG_EVENT){
-		zlog_info("Chg AR: old %s => new %s%%%s",
+		zlog_info("Chg AR: old %s(TID=%s) => new %s%%%s(TID=%s)",
 		    old ? td_neighbor_print(old) : "NULL", 
-		    new ? inet_ntop(AF_INET6, &new->saddr.sin6_addr, buf, sizeof(buf)) 
+		    (old && old->tio) ? inet_ntop(AF_INET6, &old->tio->tree_id, buf, sizeof(buf))
+		    : "NULL", 
+		    new ? inet_ntop(AF_INET6, &new->saddr.sin6_addr, buf2, sizeof(buf2)) 
 		    : "NULL",
-		    new ? new->ifp->name : "");
+		    new ? new->ifp->name : "",
+		    (new && new->tio) ? inet_ntop(AF_INET6, &new->tio->tree_id, buf3, sizeof(buf3))
+		    : "NULL"
+			);
 	}
 
   td->attach_rtr = new;
@@ -516,12 +525,14 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 				ret = td_tio_cmp(td->attach_rtr, nbr);
 				if(ret > 0)
 				{
+					zlog_info("Chg Tree: 1");
 					/* move in current tree with NO_DELAY */
 					td_change_attach_router(td->attach_rtr, nbr);
 				}
 			}
 			/* In caes of AR change (new no TIO RA) */
 			else if(!td->attach_rtr->tio && !nbr->tio){
+				zlog_info("Chg Tree: 2");
 				/* move in current tree with NO_DELAY */
 				td_change_attach_router(td->attach_rtr, nbr);
 			}
@@ -536,6 +547,7 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 			ret = td_tio_cmp(td->attach_rtr, nbr);
 			if(ret > 0)
 			{
+				zlog_info("Chg Tree: 3");
 				/* draft-td-06 Sec.5, 6 
 				   move into new tree with Tree Hop Timer */
 				td_change_attach_router(td->attach_rtr, nbr);
@@ -569,21 +581,24 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 				/* ONLY prevent from loop during E-E */
 				if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED))
 #endif
-					if(nbr->state != NSM_HeldDown)
+					if(nbr->state != NSM_HeldDown){
+						zlog_info("Chg Tree: 4");
 						td_change_attach_router(NULL, nbr);
+					}
 			}
 		}
 		else
 		{
-			if(nbr->state != NSM_HeldDown)
+			if(nbr->state != NSM_HeldDown){
+				zlog_info("Chg Tree: 5");
 				td_change_attach_router(NULL, nbr);
+			}
 		}
 	}
 
 	if(nbr->state == NSM_Current && nbr->tio){
 		if(nina_top && !nina_top->t_delay) {
-			nina_top->t_delay = thread_add_timer(master, nina_delay_na_timer
-			    , nbr, (NINA_DEF_NA_LATENCY/(2 * td->tio.depth))/1000);
+			nina_set_delay_na_timer(nbr);
 		}
 	}
 

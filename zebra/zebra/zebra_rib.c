@@ -1568,6 +1568,8 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   struct route_table *table;
   struct route_node *rn;
   struct nexthop *nexthop;
+  char buf1[BUFSIZ];
+  char buf2[BUFSIZ];
 
   int distance;
   u_int32_t metric = 0;
@@ -1653,6 +1655,12 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   /* Free implicit route.*/
   if (same)
     newrib_free (same);
+
+  zlog_info ("RIB: add route %s/%d via %s ifindex %d",
+      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
+      p->prefixlen,
+      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
+      ifindex);
 
   return 0;
 }
@@ -1782,6 +1790,12 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
     }
 
   route_unlock_node (rn);
+
+  zlog_info ("RIB: delete route %s/%d via %s ifindex %d",
+      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
+      p->prefixlen,
+      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
+      ifindex);
 
   return 0;
 }
