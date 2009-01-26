@@ -291,7 +291,7 @@ rtadv_send_packet (int sock, struct interface *ifp,
           if(p->family != AF_INET6)
 		  continue;
           if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
-		  memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+		  memcpy (&pkt->ipi6_addr, &(p->u.prefix6), sizeof (struct in6_addr));
 		  break;
 	  }
   }

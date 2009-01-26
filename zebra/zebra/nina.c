@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
+ * $Id: nina.c,v a5527dfd75ae 2009/01/26 05:43:59 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -255,7 +255,7 @@ nina_send_packet(int sock, struct interface *ifp,
 		if(p->family != AF_INET6)
 			continue;
 		if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
-			memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+			memcpy (&pkt->ipi6_addr, &(p->u.prefix6), sizeof (struct in6_addr));
 			break;
 		}
 	}
