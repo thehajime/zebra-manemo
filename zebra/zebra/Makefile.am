@@ -33,7 +33,7 @@ noinst_HEADERS = \
 
 zebra_LDADD = ../lib/libzebra.a $(otherobj) $(LIB_IPV6)
 
-zebra_DEPENDENCIES = $(otherobj)
+zebra_DEPENDENCIES = $(otherobj) ../lib/libzebra.a
 
 sysconf_DATA = zebra.conf.sample
 

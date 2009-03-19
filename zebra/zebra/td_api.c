@@ -1,7 +1,7 @@
 /* 
  * API interface for external application
  *
- * $Id: td_api.c,v 2b69ec854a33 2008/09/10 03:13:29 tazaki $
+ * $Id: td_api.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -12,6 +12,7 @@
 #include <zebra.h>
 #include <sys/un.h>
 
+#ifdef HAVE_SHISA
 #include "linklist.h"
 #include "thread.h"
 #include "log.h"
@@ -25,7 +26,6 @@
 
 int api_sock = 0;
 extern struct thread_master *master;
-extern struct td_master *td;
 extern struct prefix_ipv6 def_route;
 static int peer_sock;
 
@@ -211,3 +211,4 @@ api_term()
   return 0;
 }
 
+#endif /* HAVE_SHISA */

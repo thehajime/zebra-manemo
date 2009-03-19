@@ -23,6 +23,7 @@ Boston, MA 02110-1301, USA.  */
 
 /* Debug flags. */
 #define ZEBRA_DEBUG_EVENT   0x01
+#define ZEBRA_DEBUG_ROUTE   0x02
 
 #define ZEBRA_DEBUG_PACKET  0x01
 #define ZEBRA_DEBUG_SEND    0x20
@@ -33,6 +34,7 @@ Boston, MA 02110-1301, USA.  */
 
 /* Debug related macro. */
 #define IS_ZEBRA_DEBUG_EVENT  (zebra_debug_event & ZEBRA_DEBUG_EVENT)
+#define IS_ZEBRA_DEBUG_ROUTE  (zebra_debug_event & ZEBRA_DEBUG_ROUTE)
 
 #define IS_ZEBRA_DEBUG_PACKET (zebra_debug_packet & ZEBRA_DEBUG_PACKET)
 #define IS_ZEBRA_DEBUG_SEND   (zebra_debug_packet & ZEBRA_DEBUG_SEND)

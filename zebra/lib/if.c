@@ -340,18 +340,51 @@ if_flag_dump (unsigned long flag)
 void
 if_dump (struct interface *ifp)
 {
-#if 0
   struct listnode *node;
-#endif
 
   zlog_info ("Interface %s index %d metric %d mtu %d %s",
 	     ifp->name, ifp->ifindex, ifp->metric, ifp->mtu, 
 	     if_flag_dump (ifp->flags));
   
-#if 0
-  for (node = listhead (ifp->connected); node; nextnode (node))
-    ;
-#endif
+  for (node = listhead (ifp->connected); node; nextnode (node)){
+	  struct prefix *p;
+	  struct connected *connected = getdata (node);
+	  char str[INET6_ADDRSTRLEN];
+
+	  /* Print interface address. */
+	  p = connected->address;
+	  zlog_info ("  %s %s/%d", prefix_family_str (p),
+	      inet_ntop (p->family, &p->u.prefix, str, sizeof (str)),
+	      p->prefixlen);
+
+	  /* If there is destination address, print it. */
+	  p = connected->destination;
+	  if (p)
+	  {
+		  if (p->family == AF_INET)
+			  if (ifp->flags & IFF_BROADCAST)
+			  {
+				  zlog_info (" broadcast %s/%d",
+				      inet_ntop (p->family, &p->u.prefix, str, sizeof (str)),
+				      p->prefixlen);
+			  }
+
+		  if (ifp->flags & IFF_POINTOPOINT)
+		  {
+			  zlog_info (" pointopoint %s/%d",
+			      inet_ntop (p->family, &p->u.prefix, str, sizeof (str)),
+			      p->prefixlen);
+		  }
+	  }
+
+	  if (CHECK_FLAG (connected->flags, ZEBRA_IFA_SECONDARY))
+		  zlog_info (" secondary");
+
+	  if (connected->label)
+		  zlog_info (" %s", connected->label);
+
+  }
+
 }
 
 /* Interface printing for all interface. */

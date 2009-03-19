@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v a5527dfd75ae 2009/01/26 05:43:59 tazaki $
+ * $Id: nina.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -33,7 +33,6 @@
 #include "nina.h"
 
 extern struct thread_master *master;
-extern struct td_master *td;
 struct nina *nina_top = NULL;
 
 
@@ -75,7 +74,9 @@ struct nina_neighbor *
 nina_neighbor_new(struct sockaddr_in6 *addr, int ifindex)
 {
 	struct nina_neighbor *nbr;
+#ifdef HAVE_KBFD
 	struct bfd_peer peer;
+#endif /* HAVE_KBFD */
 
 	nbr = XCALLOC(MTYPE_NINA_NBR, sizeof(struct nina_neighbor));
 	if(!nbr)
@@ -88,6 +89,7 @@ nina_neighbor_new(struct sockaddr_in6 *addr, int ifindex)
 
 	listnode_add(nina_top->nbrs, nbr);
 
+#ifdef HAVE_KBFD
 	/* Add BFD neighbor */
 	memset (&peer, 0, sizeof (struct bfd_peer));
 	memcpy (&peer.su.sin6.sin6_addr, &nbr->ip6.u.prefix6,
@@ -99,6 +101,7 @@ nina_neighbor_new(struct sockaddr_in6 *addr, int ifindex)
 	peer.ifindex = nbr->ifp->ifindex;
 	peer.type = BFD_PEER_SINGLE_HOP;
 	kernel_bfd_add_peer (&peer, ZEBRA_ROUTE_MNDP);
+#endif /* HAVE_KBFD */
 
 	return nbr;
 }
@@ -106,6 +109,7 @@ nina_neighbor_new(struct sockaddr_in6 *addr, int ifindex)
 void
 nina_neighbor_free(struct nina_neighbor *nbr)
 {
+#ifdef HAVE_KBFD
 	struct bfd_peer peer;
 
 	/* Delete BFD neighbor */
@@ -114,6 +118,7 @@ nina_neighbor_free(struct nina_neighbor *nbr)
 	peer.ifindex = nbr->ifp->ifindex;
 	peer.type = BFD_PEER_SINGLE_HOP;
 	kernel_bfd_delete_peer (&peer, ZEBRA_ROUTE_MNDP);
+#endif /* HAVE_KBFD */
 
 	listnode_delete(nina_top->nbrs, nbr);
 	XFREE(MTYPE_NINA_NBR, nbr);
@@ -137,7 +142,7 @@ nina_na_timeout(struct thread *thread)
 /* Send neighbor advertisement packet. */
 void
 nina_send_packet(int sock, struct interface *ifp, 
-    const struct in6_addr *to, struct nina_entry *nina)
+    const struct in6_addr *to, struct list *nino_entries)
 {
 	struct msghdr msg;
 	struct iovec iov;
@@ -152,12 +157,13 @@ nina_send_packet(int sock, struct interface *ifp,
 	struct nd_neighbor_advert *na;
 	struct nd_opt_network_in_node *nino;
 	int ret;
-	int len = 0;
+	int len = 0, nino_head;
 	struct listnode *node;
 	char abuf[INET6_ADDRSTRLEN];
 
+
 	/* Logging of packet. */
-	if (IS_ZEBRA_DEBUG_PACKET)
+	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_info ("Neighbor advertisement send to %s", 
 		    inet_ntop(AF_INET6, to, abuf, sizeof(abuf)));
 
@@ -172,6 +178,7 @@ nina_send_packet(int sock, struct interface *ifp,
 
 	/* Make neighbor advertisement message. */
 	na = (struct nd_neighbor_advert *) buf;
+	memset(na, 0, sizeof(buf));
 
 	na->nd_na_type = ND_NEIGHBOR_ADVERT;
 	na->nd_na_code = 0;
@@ -219,79 +226,88 @@ nina_send_packet(int sock, struct interface *ifp,
 #endif /* HAVE_SOCKADDR_DL */
 
 	/* encode network in node advertisement option */
-	nino = (struct nd_opt_network_in_node *)((char *)na + len);
-	memset(nino, 0, sizeof(struct nd_opt_network_in_node));
-	nino->type = ND_OPT_NA_NINO;
-	nino->length = (sizeof(struct nd_opt_network_in_node) + 
-	    (nina->rn->p.prefixlen / 8)) >> 3;
-	nino->prefixlen = nina->rn->p.prefixlen;
-	nino->lifetime = htonl(nina->lifetime);
-	nino->depth = nina->depth + 1;
-	nino->seq = nina->seq;
-	memcpy(nino->prefix, &nina->rn->p.u.prefix6, nina->rn->p.prefixlen / 8);
+	nino_head = len;
+	for(node = listhead(nino_entries); node; ){
+		struct nina_entry *nina = getdata(node);
+		node = node->next;
 
-	len += (nino->length * 8);
+		nino = (struct nd_opt_network_in_node *)((char *)na + len);
+		memset(nino, 0, sizeof(struct nd_opt_network_in_node));
+		nino->type = ND_OPT_NA_NINO;
+		nino->length = (sizeof(struct nd_opt_network_in_node) + 
+		    (nina->rn->p.prefixlen / 8)) >> 3;
+		nino->prefixlen = nina->rn->p.prefixlen;
+		nino->lifetime = htonl(nina->lifetime);
+		nino->depth = nina->depth + 1;
+		nino->seq = nina->seq;
+		memcpy(nino->prefix, &nina->rn->p.u.prefix6, nina->rn->p.prefixlen / 8);
 
-	msg.msg_name = (void *) &addr;
-	msg.msg_namelen = sizeof (struct sockaddr_in6);
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-	msg.msg_control = (void *) adata;
-	msg.msg_controllen = sizeof adata;
-	iov.iov_base = buf;
-	iov.iov_len = len;
+		len += (nino->length * 8);
 
-	cmsgptr = (struct cmsghdr *)adata;
-	cmsgptr->cmsg_len = sizeof adata;
-	cmsgptr->cmsg_level = IPPROTO_IPV6;
-	cmsgptr->cmsg_type = IPV6_PKTINFO;
-	pkt = (struct in6_pktinfo *) CMSG_DATA (cmsgptr);
-	memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
-	pkt->ipi6_ifindex = ifp->ifindex;
-	/* set link-local address */
-	for(node = listhead(ifp->connected); node; nextnode(node)) {
-		struct connected *ifc = getdata(node);
-		struct prefix *p = ifc->address;
-		if(p->family != AF_INET6)
-			continue;
-		if(IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
-			memcpy (&pkt->ipi6_addr, &(p->u.prefix6), sizeof (struct in6_addr));
-			break;
+		/* if buffer will be flowed OR last */
+		if(!node ||
+		    (len + sizeof(struct nd_opt_network_in_node) + 
+			(((struct nina_entry *)getdata(node))->rn->p.prefixlen / 8)
+			> sizeof(buf))){
+
+			msg.msg_name = (void *) &addr;
+			msg.msg_namelen = sizeof (struct sockaddr_in6);
+			msg.msg_iov = &iov;
+			msg.msg_iovlen = 1;
+			msg.msg_control = (void *) adata;
+			msg.msg_controllen = sizeof adata;
+			iov.iov_base = buf;
+			iov.iov_len = len;
+
+			cmsgptr = (struct cmsghdr *)adata;
+			cmsgptr->cmsg_len = sizeof adata;
+			cmsgptr->cmsg_level = IPPROTO_IPV6;
+			cmsgptr->cmsg_type = IPV6_PKTINFO;
+			pkt = (struct in6_pktinfo *) CMSG_DATA (cmsgptr);
+			memset (&pkt->ipi6_addr, 0, sizeof (struct in6_addr));
+			pkt->ipi6_ifindex = ifp->ifindex;
+			/* set link-local address */
+			memcpy (&pkt->ipi6_addr, &(na->nd_na_target), sizeof (struct in6_addr));
+
+			ret = sendmsg (sock, &msg, 0);
+			if(ret < 0)
+			{
+				nina_top->na_error++;
+				zlog_warn("sendmsg(send_na) err on %s(%s)", 
+				    inet_ntop(AF_INET6, to, abuf, sizeof(abuf)),
+				    strerror(errno));
+				return;
+			}
+
+			nina_top->na_send++;
+			nina_top->na_nina_send++;
+
+			if(IS_ZEBRA_DEBUG_PACKET)
+			{
+				zlog_info("NA: %s: SEND(%llu):NINO ifindex=%d", 
+				    inet_ntop(AF_INET6, to, abuf, sizeof(abuf)),
+				    nina_top->na_send, ifp->ifindex);
+
+				/* Packet dump */
+				zlog_dump(buf, ret);
+			}
+
+			/* reset poinst */
+			len = nino_head;
 		}
-	}
-
-	ret = sendmsg (sock, &msg, 0);
-	if(ret < 0)
-	{
-		nina_top->na_error++;
-		zlog_warn("sendmsg(send_ra) err on %s(%s)", 
-		    inet_ntop(AF_INET6, to, abuf, sizeof(abuf)),
-		    strerror(errno));
-		return;
-	}
-
-	nina_top->na_send++;
-	nina_top->na_nina_recv++;
-
-	if(IS_ZEBRA_DEBUG_PACKET)
-	{
-		zlog_info("NA: %s: SEND(%llu):NINO ifindex=%d", 
-		    inet_ntop(AF_INET6, to, abuf, sizeof(abuf)),
-		    nina_top->na_send, ifp->ifindex);
-
-		/* Packet dump */
-		zlog_dump(buf, ret);
 	}
 
 	return;
 }
 
-static int
+int
 nina_delay_na_timer(struct thread *thread)
 {
 	struct td_neighbor *td_nbr;
 	struct nina_entry *nina;
 	struct route_node *rn, *next;
+	struct list *nino_entries = NULL;
+	struct listnode *node;
 
 	nina_top->t_delay = NULL;
 	td_nbr = THREAD_ARG(thread); 
@@ -302,12 +318,14 @@ nina_delay_na_timer(struct thread *thread)
 		return 0;
 
 	if(nina_top) {
+		nino_entries = list_new();
 
 		/* connected list */
 		for(rn = route_top(nina_top->connected); rn; rn = route_next (rn)) {
 			if((nina = rn->info) != NULL) {
-				nina_send_packet(nina_top->sock, td_nbr->ifp, 
-				    &td_nbr->saddr.sin6_addr, nina);
+				listnode_add(nino_entries, nina);
+/* 				nina_send_packet(nina_top->sock, td_nbr->ifp,  */
+/* 				    &td_nbr->saddr.sin6_addr, nina); */
 				nina->reported = 1;
 			}
 		}
@@ -315,8 +333,9 @@ nina_delay_na_timer(struct thread *thread)
 		/* reachable list */
 		for(rn = route_top(nina_top->reachable); rn; rn = route_next (rn)) {
 			if((nina = rn->info) != NULL) {
-				nina_send_packet(nina_top->sock, td_nbr->ifp, 
-				    &td_nbr->saddr.sin6_addr, nina);
+				listnode_add(nino_entries, nina);
+/* 				nina_send_packet(nina_top->sock, td_nbr->ifp,  */
+/* 				    &td_nbr->saddr.sin6_addr, nina); */
 				nina->reported = 1;
 			}
 		}
@@ -327,15 +346,27 @@ nina_delay_na_timer(struct thread *thread)
 			if((nina = rn->info) != NULL) {
 				/* Set to no-NINO */
 				nina->lifetime = 0;
-				nina_send_packet(nina_top->sock, td_nbr->ifp, 
-				    &td_nbr->saddr.sin6_addr, nina);
+				listnode_add(nino_entries, nina);
+/* 				nina_send_packet(nina_top->sock, td_nbr->ifp,  */
+/* 				    &td_nbr->saddr.sin6_addr, nina); */
 
 				/* Free the memory  */
 				rn->info = NULL;
 				route_unlock_node(rn);
-				XFREE(MTYPE_NINA_ENTRY, nina);
+/* 				XFREE(MTYPE_NINA_ENTRY, nina); */
 			}
 		}
+
+
+		nina_send_packet(nina_top->sock, td_nbr->ifp,
+		    &td_nbr->saddr.sin6_addr, nino_entries);
+
+		for(node = listhead(nino_entries); node; nextnode(node)){
+			nina = getdata(node);
+			if(nina->lifetime == 0)
+				XFREE(MTYPE_NINA_ENTRY, nina);
+		}
+		list_delete(nino_entries);
 	}
 
 	return 0;
@@ -416,7 +447,7 @@ nina_send_ratio(struct interface *ifp)
 void
 nina_process_solicit (struct interface *ifp, struct sockaddr_in6 *from)
 {
-	if (IS_ZEBRA_DEBUG_PACKET)
+	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_info ("Neighbor solicitation received on %s", ifp->name);
 
 	/* Nothing to do */
@@ -447,9 +478,10 @@ nina_nino_expire(struct thread *thread)
 	nina = thread->arg;
 	nina->t_expire = NULL;
 
-	zlog_info("NINO: expire prefix %s/%d on reachable list", 
-	    inet_ntop(AF_INET6, &nina->rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
-	    nina->rn->p.prefixlen);
+	if (IS_ZEBRA_DEBUG_ROUTE)
+		zlog_info("NINO: expire prefix %s/%d on reachable list", 
+		    inet_ntop(AF_INET6, &nina->rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
+		    nina->rn->p.prefixlen);
 
 	prefix_copy(&p, &nina->rn->p);
 	/* Delete from reachable list */
@@ -529,8 +561,8 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			if(nino->lifetime == 0) {
 				thread_cancel(reach->t_expire);
 				/* move to unreachable list immediately */
-				reach->t_expire = thread_add_timer(master, 
-				    nina_nino_expire, reach, 1);
+				reach->t_expire = thread_add_event(master, 
+				    nina_nino_expire, reach, 0);
 				goto end;
 			}
 
@@ -550,6 +582,53 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			nina_set_delay_na_timer(td->attach_rtr);
 #endif
 		}
+		/* Or Depth is decreased */
+		else if(nino->depth < reach->depth) {
+			/* Update information */
+			reach->state = NINO_CONFIRMED;
+			reach->reported = 0;
+			reach->retries = 0;
+			reach->depth = nino->depth;
+			reach->seq = nino->seq;
+			reach->lifetime = ntohl(nino->lifetime);
+			thread_cancel(reach->t_expire);
+			reach->t_expire = thread_add_timer(master, 
+			    nina_nino_expire, reach, reach->lifetime);
+
+			if(reach->nbr != nbr) {
+				/* Replace RIB */
+				ret = rib_delete_ipv6(ZEBRA_ROUTE_MNDP, 0, (struct prefix_ipv6 *)&p,
+						&reach->nbr->ip6.u.prefix6,
+						reach->nbr->ifp->ifindex, 0);
+				if(ret != 0) {
+					zlog_warn("NINA: delete route failure: on ifindex %d (%s)",
+							reach->nbr->ifp->ifindex, strerror(errno));
+				}
+				ret = rib_add_ipv6(ZEBRA_ROUTE_MNDP, 0,
+						(struct prefix_ipv6 *)&rn->p, &nbr->ip6.u.prefix6, 
+						nbr->ifp->ifindex, 0);
+				if(ret != 0) {
+					zlog_warn("NINA: add route failure: on ifindex %d (%s)",
+							nbr->ifp->ifindex, strerror(errno));
+				}
+
+				if (IS_ZEBRA_DEBUG_ROUTE)
+					zlog_info("NINO: replace prefix %s/%d on reachable list", 
+							inet_ntop(AF_INET6, &rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
+							rn->p.prefixlen);
+
+				reach->nbr = nbr;
+			}
+
+			if(nina_top && td->attach_rtr){
+				struct list *nino_entries = NULL;
+				nino_entries = list_new();
+				listnode_add(nino_entries, reach);
+				nina_send_packet(nina_top->sock, td->attach_rtr->ifp,
+						&td->attach_rtr->saddr.sin6_addr, nino_entries);
+				list_delete(nino_entries);
+			}
+		}
 	}
 	else {
 		reach = XCALLOC(MTYPE_NINA_ENTRY, sizeof(struct nina_entry));
@@ -565,7 +644,18 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 		reach->rn = rn;
 		rn->info = reach;
 
+#if 1
+		if(nina_top && td->attach_rtr){
+			struct list *nino_entries = NULL;
+			nino_entries = list_new();
+			listnode_add(nino_entries, reach);
+			nina_send_packet(nina_top->sock, td->attach_rtr->ifp,
+					&td->attach_rtr->saddr.sin6_addr, nino_entries);
+			list_delete(nino_entries);
+		}
+#else
 		nina_set_delay_na_timer(td->attach_rtr);
+#endif
 
 		/* Add RIB */
 		ret = rib_add_ipv6(ZEBRA_ROUTE_MNDP, 0,
@@ -576,9 +666,10 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			    nbr->ifp->ifindex, strerror(errno));
 		}
 
-		zlog_info("NINO: regist new prefix %s/%d on reachable list", 
-		    inet_ntop(AF_INET6, &rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
-		    rn->p.prefixlen);
+		if (IS_ZEBRA_DEBUG_ROUTE)
+			zlog_info("NINO: regist new prefix %s/%d on reachable list", 
+			    inet_ntop(AF_INET6, &rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
+			    rn->p.prefixlen);
 	}
 
 end:
@@ -590,11 +681,12 @@ nina_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
     struct nd_neighbor_advert *nina, int len)
 {
 	struct nd_opt_hdr *opt;
-	struct nina_neighbor *nbr;
+	struct nina_neighbor *nbr = NULL;
 	struct nd_opt_network_in_node *nino = NULL;
 	char abuf[INET6_ADDRSTRLEN];
+	int first = 1;
 
-	if (IS_ZEBRA_DEBUG_PACKET)
+	if (IS_ZEBRA_DEBUG_EVENT)
 		zlog_info ("Neighbor advertisement received on %s", ifp->name);
 
 	/* Option parsing */
@@ -619,41 +711,45 @@ nina_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
 			break;
 		}
 
+		if(nino) {
+			/* Only First Time */
+			if(first){
+				if (IS_ZEBRA_DEBUG_EVENT)
+					zlog_info ("NA include NINO option from %s", 
+					    inet_ntop(AF_INET6, &from->sin6_addr, abuf, INET6_ADDRSTRLEN));
+
+				nbr = nina_neighbor_lookup(from, ifp->ifindex);
+				if(nbr) {
+					if(nbr->t_expire)
+					{
+						thread_cancel(nbr->t_expire);
+						nbr->t_expire = NULL;
+					}
+				}
+				else {
+					nbr = nina_neighbor_new(from, ifp->ifindex);
+					if(!nbr)
+						return;
+				}
+
+				/* regist expire timer */
+				nbr->t_expire = thread_add_timer(master, nina_na_timeout, nbr, 
+				    NINA_DEFAULT_NA_LIFETIME/1000);
+
+				nina_top->na_nina_recv++;
+				first = 0;
+			}
+
+			/* Parse NINO payload */
+			nina_process_nino(nbr, nino);
+		}
+
 		/* endof message */
 		if(opt->nd_opt_len == 0)
 			break;
 
 		len -= opt->nd_opt_len * 8;
 		opt = (struct nd_opt_hdr *)(((u_char *)opt) + opt->nd_opt_len * 8);
-	}
-
-	if(nino) {
-		if (IS_ZEBRA_DEBUG_PACKET)
-			zlog_info ("NA include NINO option from %s", 
-			    inet_ntop(AF_INET6, &from->sin6_addr, abuf, INET6_ADDRSTRLEN));
-
-		nbr = nina_neighbor_lookup(from, ifp->ifindex);
-		if(nbr) {
-			if(nbr->t_expire)
-			{
-				thread_cancel(nbr->t_expire);
-				nbr->t_expire = NULL;
-			}
-		}
-		else {
-			nbr = nina_neighbor_new(from, ifp->ifindex);
-			if(!nbr)
-				return;
-		}
-
-		/* regist expire timer */
-		nbr->t_expire = thread_add_timer(master, nina_na_timeout, nbr, 
-		    NINA_DEFAULT_NA_LIFETIME/1000);
-
-		nina_top->na_nina_recv++;
-
-		/* Parse NINO payload */
-		nina_process_nino(nbr, nino);
 	}
 
 	return;
@@ -760,8 +856,12 @@ nina_read(struct thread *thread)
 
 	/* If recvmsg fail return minus value. */
 	ret = recvmsg (sock, &msg, 0);
-	if (ret < 0)
+	if (ret < 0){
+		zlog_warn("recvmsg(recv_na) err on %s(%s)", 
+		    inet_ntop(AF_INET6, &from, abuf, sizeof(abuf)),
+		    strerror(errno));
 		return ret;
+	}
 
 	for (cmsgptr = CMSG_FIRSTHDR(&msg); cmsgptr != NULL;
 	     cmsgptr = CMSG_NXTHDR(&msg, cmsgptr)) 
@@ -783,7 +883,7 @@ nina_read(struct thread *thread)
 			hoplimit = *((int *) CMSG_DATA (cmsgptr));
 	}
 
-	if(IS_ZEBRA_DEBUG_PACKET)
+	if(IS_ZEBRA_DEBUG_EVENT)
 		zlog_info("NA: recv_packet: %s idx=%d, hl=%d",
 		    inet_ntop(AF_INET6, &from.sin6_addr, abuf, INET6_ADDRSTRLEN), 
 		    ifindex, hoplimit);
@@ -1110,3 +1210,10 @@ int nina_terminate()
 {
 	return 0;
 }
+
+/* Local Variables: */
+/* c-basic-offset: 2 */
+/* c-indent-level: 2 */
+/* indent-tabs-mode: t */
+/* tab-width: 2 */
+/* end: */

@@ -247,4 +247,6 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 
 #endif /* HAVE_IPV6 */
 
+int rib_dump_timer(struct thread *);
+
 #endif /*_ZEBRA_RIB_H */

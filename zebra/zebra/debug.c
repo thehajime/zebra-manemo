@@ -73,7 +73,7 @@ DEFUN (debug_zebra_events,
        "Zebra configuration\n"
        "Debug option set for zebra events\n")
 {
-  zebra_debug_event = ZEBRA_DEBUG_EVENT;
+  zebra_debug_event |= ZEBRA_DEBUG_EVENT;
   return CMD_WARNING;
 }
 
@@ -191,6 +191,18 @@ DEFUN (no_debug_zebra_kernel,
   return CMD_SUCCESS;
 }
 
+DEFUN (debug_zebra_route,
+       debug_zebra_route_cmd,
+       "debug zebra route",
+       DEBUG_STR
+       "Zebra configuration\n"
+       "Debug option set for route events\n")
+{
+  zebra_debug_event |= ZEBRA_DEBUG_ROUTE;
+  return CMD_WARNING;
+}
+
+
 /* Debug node. */
 struct cmd_node debug_node =
 {
@@ -258,7 +270,8 @@ zebra_debug_init ()
   install_element (ENABLE_NODE, &no_debug_zebra_events_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_packet_cmd);
   install_element (ENABLE_NODE, &no_debug_zebra_kernel_cmd);
-
+  install_element (ENABLE_NODE, &debug_zebra_route_cmd);
+  
   install_element (CONFIG_NODE, &debug_zebra_events_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_cmd);
   install_element (CONFIG_NODE, &debug_zebra_packet_direct_cmd);
@@ -267,4 +280,5 @@ zebra_debug_init ()
   install_element (CONFIG_NODE, &no_debug_zebra_events_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_packet_cmd);
   install_element (CONFIG_NODE, &no_debug_zebra_kernel_cmd);
+  install_element (CONFIG_NODE, &debug_zebra_route_cmd);
 }

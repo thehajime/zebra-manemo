@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
+ * $Id: td.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -149,6 +149,9 @@ td_make_ti_option(struct nd_opt_tree_discovery *tio)
   /* FIXME non use of CoA */
   tio->path_digest = crc((unsigned char *)tio, tio->len * 8);
 
+	if(IS_ZEBRA_DEBUG_EVENT)
+		zlog_info("TIO Flags = %d", tio->flags);
+
   len += tio->len * 8;
   return len;
 }
@@ -160,7 +163,7 @@ td_send_rs_packet(int sock, struct interface *ifp)
   int ret;
   struct nd_router_solicit *rtsol;
   u_char buf[ND_PKT_LEN];
-  char adata[CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int))];
+  char adata[CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int)) + 64];
   struct sockaddr_in6 addr;
   struct msghdr msg;
   struct iovec iov;
@@ -180,8 +183,8 @@ td_send_rs_packet(int sock, struct interface *ifp)
   msg.msg_iov = &iov;
   msg.msg_iovlen = 1;
   msg.msg_control = (void *)adata;
-  msg.msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo)) 
-    + CMSG_SPACE(sizeof(int));
+  msg.msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo)) + 
+      CMSG_SPACE(sizeof(int));
 
   cmsgptr = CMSG_FIRSTHDR(&msg);
 
@@ -194,13 +197,14 @@ td_send_rs_packet(int sock, struct interface *ifp)
   pkt->ipi6_ifindex = ifp->ifindex;
 
   cmsgptr = CMSG_NXTHDR(&msg, cmsgptr);
-
+#if 0
   /* HOPLIMIT */
   cmsgptr->cmsg_len = CMSG_LEN(sizeof(int));
   cmsgptr->cmsg_level = IPPROTO_IPV6;
   cmsgptr->cmsg_type = IPV6_HOPLIMIT;
   *(int *)(CMSG_DATA(cmsgptr)) = 255;
   cmsgptr = CMSG_NXTHDR(&msg, cmsgptr);
+#endif
 
   memset(buf, 0, sizeof(buf));
   rtsol = (struct nd_router_solicit *)buf;
@@ -246,7 +250,8 @@ td_ra_timeout(struct thread *thread)
   nbr->t_expire = NULL;
 
   if(td->attach_rtr == nbr){
-    zlog_info("Chg Tree: 6");
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("Chg Tree: 6");
     td_change_attach_router(nbr, NULL);
   }
 
@@ -308,9 +313,48 @@ td_change_attach_router(struct td_neighbor *old, struct td_neighbor *new)
   if(new)
     td_nsm_event(new, NSM_JoinAR);
 
+#ifdef HAVE_SHISA
   api_notify_td_depth_all();
+#endif /* HAVE_SHISA */
+
+	if(new && new->state == NSM_Current && new->tio){
+		if(nina_top) {
+			if(nina_top->t_delay)
+				thread_cancel(nina_top->t_delay);
+			nina_top->t_delay = thread_add_event(master, 
+					nina_delay_na_timer, new, 0);
+		}
+	}
 
   return 0;
+}
+
+static int
+td_tid_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
+{
+	int ret=0;
+
+	if(IS_ZEBRA_DEBUG_EVENT){
+		char buf[INET6_ADDRSTRLEN];
+		char buf2[INET6_ADDRSTRLEN];
+
+		if(IS_ZEBRA_DEBUG_EVENT){
+			zlog_info("Comp: TID1=%s with TID2=%s",
+					inet_ntop(AF_INET6, &nbr1->tio->tree_id, buf, sizeof(buf)),
+					inet_ntop(AF_INET6, &nbr2->tio->tree_id, buf2, sizeof(buf2))); 
+		}
+	}
+
+	if(ret = (ntohl(nbr2->tio->tree_id[0]) - ntohl(nbr1->tio->tree_id[0])))
+		return ret;
+	else if(ret = (ntohl(nbr2->tio->tree_id[1]) - ntohl(nbr1->tio->tree_id[1])))
+		return ret;
+	else if(ret = (ntohl(nbr2->tio->tree_id[2]) -  ntohl(nbr1->tio->tree_id[2])))
+			return ret;
+	else if(ret = (ntohl(nbr2->tio->tree_id[3]) - ntohl(nbr1->tio->tree_id[3])))
+		return ret;
+
+	return 0;
 }
 
 /*
@@ -322,29 +366,73 @@ static int
 td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 {
 	struct timeval timer_now;
+	int ret = 0;
 
-  /* if G(grounded) flag is set, this tree is assumed 
-     as a Internet GW */
-  if(nbr1->tio && (nbr1->tio->flags & TIO_BASE_FLAG_GROUNDED))
+  /* if G(grounded) flag is set (or TIO is NULL=>assume GROUDED), this
+     tree is assumed as a Internet GW */
+  if(!nbr1->tio || (nbr1->tio->flags & TIO_BASE_FLAG_GROUNDED))
     {
-      if(nbr2->tio && !(nbr2->tio->flags & TIO_BASE_FLAG_GROUNDED))
+      if(nbr2->tio && !(nbr2->tio->flags & TIO_BASE_FLAG_GROUNDED)){
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("Comp Tree: 1");
         return -1;
+			}
     }
-  else if(nbr2->tio && (nbr2->tio->flags & TIO_BASE_FLAG_GROUNDED))
+	if(!nbr2->tio || (nbr2->tio->flags & TIO_BASE_FLAG_GROUNDED))
     {
-      if(nbr1->tio && !(nbr1->tio->flags & TIO_BASE_FLAG_GROUNDED))
+      if(nbr1->tio && !(nbr1->tio->flags & TIO_BASE_FLAG_GROUNDED)){
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("Comp Tree: 2");
         return 1;
+			}
     }
 
   /* held-down nbr */
-  if(nbr1->state == NSM_HeldDown && nbr2->state != NSM_HeldDown)
+  if(nbr1->state == NSM_HeldDown && nbr2->state != NSM_HeldDown){
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("Comp Tree: 3");
     return 1;
-  if(nbr2->state == NSM_HeldDown && nbr1->state != NSM_HeldDown)
+	}
+  if(nbr2->state == NSM_HeldDown && nbr1->state != NSM_HeldDown){
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("Comp Tree: 4");
     return -1;
+	}
 
-  /* depth */
-  if(nbr1->tree_depth != nbr2->tree_depth)
+	/* TreeID Comparation. Bigger is better. */
+#if 0
+	if(nbr1->tio && nbr2->tio){
+		if(ret = td_tid_cmp(nbr1, nbr2)){
+			if(IS_ZEBRA_DEBUG_EVENT)
+				zlog_info("Comp Tree: 5 ret = %d", ret);
+			return ret;
+		}
+	}
+
+	/* Tree Preference comparation */
+	if(nbr1->tio && nbr2->tio){
+		if(ntohl(*(uint32_t *)(&nbr1->tio->tree_pref)) > 
+				ntohl(*(uint32_t *)(&nbr2->tio->tree_pref))){
+			if(IS_ZEBRA_DEBUG_EVENT)
+				zlog_info("Comp Tree: 6");
+			return -1;
+		}
+
+		if(ntohl(*(uint32_t *)(&nbr1->tio->tree_pref)) <
+				ntohl(*(uint32_t *)(&nbr2->tio->tree_pref))){
+			if(IS_ZEBRA_DEBUG_EVENT)
+				zlog_info("Comp Tree: 7");
+			return 1;
+		}
+	}
+#endif
+
+  /* depth. choose deeper tree to join the majority ? */
+  if(nbr1->tree_depth != nbr2->tree_depth){
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("Comp Tree: 8");
     return (nbr1->tree_depth - nbr2->tree_depth);
+	}
 
   /* which miscount of nbr is much more? (not in draft, but original) */
   gettimeofday (&timer_now, NULL);
@@ -365,6 +453,8 @@ td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 
   /* select Attachment Router from DRL in My OWN Manner
      (FIXME, using plug-in?) */
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("Comp Tree: Last");
   return 0;
 }
 
@@ -525,14 +615,18 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 				ret = td_tio_cmp(td->attach_rtr, nbr);
 				if(ret > 0)
 				{
-					zlog_info("Chg Tree: 1");
+					if(IS_ZEBRA_DEBUG_EVENT){
+						zlog_info("Chg Tree: 1, old_tio %p new_tio %p",
+								td->attach_rtr->tio, nbr->tio);
+					}
 					/* move in current tree with NO_DELAY */
 					td_change_attach_router(td->attach_rtr, nbr);
 				}
 			}
 			/* In caes of AR change (new no TIO RA) */
 			else if(!td->attach_rtr->tio && !nbr->tio){
-				zlog_info("Chg Tree: 2");
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("Chg Tree: 2");
 				/* move in current tree with NO_DELAY */
 				td_change_attach_router(td->attach_rtr, nbr);
 			}
@@ -547,7 +641,8 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 			ret = td_tio_cmp(td->attach_rtr, nbr);
 			if(ret > 0)
 			{
-				zlog_info("Chg Tree: 3");
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("Chg Tree: 3");
 				/* draft-td-06 Sec.5, 6 
 				   move into new tree with Tree Hop Timer */
 				td_change_attach_router(td->attach_rtr, nbr);
@@ -570,27 +665,54 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 
 				/* if loop is detected, try to reset egress 
 				   interface, and expect another 802.11 AP */
+#ifdef DISCON_WHEN_LOOP
 				if_unset_flags (nbr->ifp, IFF_UP);
 				if_set_flags (nbr->ifp, IFF_UP);
+#endif
 			}
 			else
 			{
 				/* draft-td-06 Sec.5, 6 
 				   move into new tree with Tree Hop Timer */
-#if 0
-				/* ONLY prevent from loop during E-E */
-				if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED))
-#endif
-					if(nbr->state != NSM_HeldDown){
-						zlog_info("Chg Tree: 4");
-						td_change_attach_router(NULL, nbr);
+				if(td->tio.depth == nbr->tree_depth){
+					if(ntohl(*(uint32_t *)(&nbr->tio->tree_pref)) > 
+							ntohl(*(uint32_t *)(&td->tio.tree_pref))){
+
+						if(IS_ZEBRA_DEBUG_EVENT)
+							zlog_info("Preference (%lu) is higher than I (%lu)", 
+									ntohl(*(uint32_t *)(&nbr->tio->tree_pref)),
+									ntohl(*(uint32_t *)(&td->tio.tree_pref)));
+						if(nbr->state != NSM_HeldDown){
+							if(IS_ZEBRA_DEBUG_EVENT)
+								zlog_info("Chg Tree: 4");
+							td_change_attach_router(NULL, nbr);
+						}
 					}
+
+				/* ONLY prevent from loop during E-E */
+					if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED)) {
+						if(nbr->state != NSM_HeldDown){
+							if(IS_ZEBRA_DEBUG_EVENT)
+								zlog_info("Chg Tree: 4-1");
+							td_change_attach_router(NULL, nbr);
+						}
+					}
+
+				}
+				else{
+						if(nbr->state != NSM_HeldDown){
+							if(IS_ZEBRA_DEBUG_EVENT)
+								zlog_info("Chg Tree: 4-2");
+							td_change_attach_router(NULL, nbr);
+						}
+				}
 			}
 		}
 		else
 		{
 			if(nbr->state != NSM_HeldDown){
-				zlog_info("Chg Tree: 5");
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("Chg Tree: 5");
 				td_change_attach_router(NULL, nbr);
 			}
 		}
@@ -845,7 +967,7 @@ DEFUN (show_ipv6_nd_td,
           VTY_NEWLINE);
   vty_out(vty, " MR Preference %d%s",td->tio.mr_pref, VTY_NEWLINE);
   vty_out(vty, " Tree Preference %d%s",td->tio.tree_pref, VTY_NEWLINE);
-  vty_out(vty, " Tree Delay %d%s",td->tio.delay, VTY_NEWLINE);
+  vty_out(vty, " Tree Delay %d (ms)%s",td->tio.delay, VTY_NEWLINE);
   vty_out(vty, " Tree ID %s%s", (td->attach_rtr && td->attach_rtr->tio) ?
           inet_ntop(AF_INET6, (struct in6_addr *)&td->attach_rtr->tio->tree_id, 
 	      buf, sizeof(buf)) :
@@ -927,8 +1049,9 @@ td_init()
 {
   struct interface *ifp;
   struct connected *ifc;
-  struct prefix *p;
+  struct prefix *p = NULL;
   struct listnode *node, *node2;
+	long int rand;
 
   td = XCALLOC(MTYPE_TD, sizeof(struct td_master));
   if(!td)
@@ -951,37 +1074,55 @@ td_init()
 
   /* assign tree-id of own tree from HoA. 
      Currently, pick from interface mip0(SHISA only)(FIXME)  */
-  for(node = listhead(iflist); node; nextnode(node))
-    {
-      ifp = getdata(node);
-      if(strncmp(ifp->name, "mip0", 4))
-	      continue;
+	if(ifp = if_lookup_by_name("mip0")){
+			for(node = listhead(ifp->connected); node; nextnode(node))
+			{
+				ifc = getdata(node);
+				p = ifc->address;
+				if(p->family != AF_INET6)
+					continue;
+				if(!IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)))
+					continue;
+			break;
+			}
+	}
+	else{
+		for(node = listhead(iflist); node; nextnode(node))
+		{
+			ifp = getdata(node);
 
-      if(if_is_loopback(ifp))
-        continue;
-
-      for(node2 = listhead(ifp->connected); node2; nextnode(node2))
-        {
-          ifc = getdata(node2);
-          p = ifc->address;
-
-          if(p->family != AF_INET6)
-            continue;
-
-          if(!IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)))
-            {
-              memcpy(&td->tio.tree_id, &p->u.prefix6, 
-                     sizeof(struct in6_addr));
-              break;
-            }
-        }
-    }
-
+			if(if_is_loopback(ifp))
+				continue;
+			for(node2 = listhead(ifp->connected); node2; nextnode(node2))
+			{
+				ifc = getdata(node2);
+				p = ifc->address;
+				if(p->family != AF_INET6)
+					continue;
+			break;
+			}
+		}
+	}
+	if(p){
+		memcpy(&td->tio.tree_id, &p->u.prefix6, 
+						sizeof(struct in6_addr));
+	}
+	
   if(memcmp(&td->tio.tree_id, &in6addr_any,
 	  sizeof(struct in6_addr)) == 0)
-	  zlog_warn("TD: counldn't find HoA for TreeID");
+	  zlog_warn("TD: couldn't find HoA for TreeID");
+
+	if(IS_ZEBRA_DEBUG_EVENT || 1){
+		char buf[INET6_ADDRSTRLEN];
+		zlog_info("TreeID is %s", inet_ntop(AF_INET6, &td->tio.tree_id,
+						buf, sizeof(buf)));
+	}
+
 
   td->tio.tree_pref = 0;
+	/* FIXME! */
+	if(p)
+		srandom(*(unsigned int *)&p->u.val[4]);
   td->tio.boot_time = (random() & 0x00FFFFFF);
   /* draft-td-06 Sec.5, 1 (Fixed Router Case is 0) */
   td->tio.depth = 1;
@@ -1001,8 +1142,10 @@ td_init()
   install_element(CONFIG_NODE, &ipv6_nd_td_fixed_cmd);
   install_element(CONFIG_NODE, &no_ipv6_nd_td_fixed_cmd);
 
+#ifdef HAVE_SHISA
   /* For API */
   api_init(MNDP_API_PATH);
+#endif /* HAVE_SHISA */
 
   return 0;
 }
@@ -1025,9 +1168,16 @@ td_terminate()
           /* set even number */
           td->tio.seq = td->tio.seq + 2;
           rtadv_send_packet (rtadv->sock, ifp,
-                             &in6addr_linklocal_allnodes, 1);
+	      (struct in6_addr *)&in6addr_linklocal_allnodes, 1);
         }
     }
 
   return 0;
 }
+
+/* Local Variables: */
+/* c-basic-offset: 2 */
+/* c-indent-level: 2 */
+/* indent-tabs-mode: t */
+/* tab-width: 2 */
+/* end: */

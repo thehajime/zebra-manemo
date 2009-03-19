@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.h,v 701125187d39 2008/09/10 03:15:01 tazaki $
+ * $Id: td_neighbor.h,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -56,6 +56,7 @@ struct td_neighbor
 	u_int16_t lifetime;
 	struct td_nbr_log state_log[MAX_NBR_STATE_LOG];
 	u_int32_t changes;
+	struct prefix adv_prefix;
 };
 
 

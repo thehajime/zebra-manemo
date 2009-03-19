@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
+ * $Id: td_neighbor.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -20,6 +20,7 @@
 #include "memory.h"
 
 #include "interface.h"
+#include "debug.h"
 #include "td.h"
 #include "td_neighbor.h"
 #include "rib.h"
@@ -27,7 +28,6 @@
 #include "nina.h"
 
 extern struct thread_master *master;
-extern struct td_master *td;
 extern struct nina *nina_top;
 
 struct prefix_ipv6 def_route = {AF_INET6, 0, IN6ADDR_ANY_INIT};
@@ -60,7 +60,6 @@ void
 td_neighbor_free(struct td_master *td, struct td_neighbor *nbr)
 {
 	struct td_neighbor *tmp;
-	struct bfd_peer peer;
 
 	tmp = td_neighbor_lookup(td, &nbr->saddr, nbr->ifp->ifindex);
 
@@ -72,14 +71,17 @@ td_neighbor_free(struct td_master *td, struct td_neighbor *nbr)
 
 		listnode_delete(td->td_nbrs, nbr);
 
+#ifdef HAVE_KBFD
 		/* Delete BFD neighbor */
 		if(nbr->tio){
+			struct bfd_peer peer;
 			memset (&peer, 0, sizeof (struct bfd_peer));
 			memcpy (&peer.su, &tmp->saddr, sizeof (tmp->saddr));
 			peer.ifindex = tmp->ifp->ifindex;
 			peer.type = BFD_PEER_SINGLE_HOP;
 			kernel_bfd_delete_peer (&peer, ZEBRA_ROUTE_MNDP);
 		}
+#endif	/* HAVE_KBFD */
 
 		XFREE(MTYPE_TD_NBR, nbr);
 		return;
@@ -193,8 +195,12 @@ nsm_join_ar(struct td_neighbor *nbr)
 	if(nbr->state == NSM_Candidate)
 	{
 		/* move within same tree */
-		if(nbr->tio && (memcmp(nbr->tio->tree_id, td->last_tree_id, 
-			    sizeof(nbr->tio->tree_id)) == 0))
+		if((nbr->tio && (memcmp(nbr->tio->tree_id, td->last_tree_id, 
+				sizeof(nbr->tio->tree_id)) == 0)) ||
+		    (td->last_tree_id[0] == 0 &&
+			td->last_tree_id[1] == 0 &&
+			td->last_tree_id[2] == 0 &&
+			td->last_tree_id[3] == 0))
 		{
 			/* Avoid add default route when MR is root-MR */
 			if(td->tio.depth > 0) {
@@ -215,17 +221,19 @@ nsm_join_ar(struct td_neighbor *nbr)
 
 			/* draft-td-06 Sec.5.4.1 Tree Hop Timer */
 			if(nbr->tio)
-				delay = (nbr->tio->depth + random()/LONG_MAX) * nbr->tio->delay;
+				delay = ((nbr->tio->depth + random()/LONG_MAX) * nbr->tio->delay)/1000;
 			else
 				delay = 0;
 
-			zlog_info("nbr->tio = %p, OldTID = %s, NewTID, = %s delay = %d"
-			    , nbr->tio, 
-			    inet_ntop(AF_INET6, &td->last_tree_id, buf, sizeof(buf)),
-			    nbr->tio ? 
-			    inet_ntop(AF_INET6, &nbr->tio->tree_id, buf2, sizeof(buf2))
-			    : "NULL", 
-			    delay);
+			if(IS_ZEBRA_DEBUG_EVENT){
+				zlog_info("nbr->tio = %p, OldTID = %s, NewTID, = %s delay = %d"
+				    , nbr->tio, 
+				    inet_ntop(AF_INET6, &td->last_tree_id, buf, sizeof(buf)),
+				    nbr->tio ? 
+				    inet_ntop(AF_INET6, &nbr->tio->tree_id, buf2, sizeof(buf2))
+				    : "NULL", 
+				    delay);
+			}
           
 			nbr->t_treehop = thread_add_timer(master, nsm_treehop_timer, nbr, delay);
 			return NSM_HeldUp;
@@ -242,7 +250,7 @@ nsm_join_ar(struct td_neighbor *nbr)
 
 		/* draft-td-06 Sec.5.4.1 Tree Hop Timer */
 		if(nbr->tio)
-			delay = (nbr->tio->depth + random()/LONG_MAX) * nbr->tio->delay;
+			delay = ((nbr->tio->depth + random()/LONG_MAX) * nbr->tio->delay)/1000;
 		else
 			delay = 0;
 
@@ -461,7 +469,7 @@ td_nsm_event(struct td_neighbor *nbr, int nsm_event)
 {
 	int next_state, old_state;
 
-	if(1)
+	if(IS_ZEBRA_DEBUG_EVENT)
 		zlog_info("%s NSM:Event (%s)", 
 		    td_neighbor_print(nbr), td_event_string[nsm_event]);
 
@@ -482,11 +490,12 @@ td_nsm_event(struct td_neighbor *nbr, int nsm_event)
 
 	if(old_state != next_state)
 	{
-		zlog_info("%s NSM:Sta Chg %s=>%s(%s)", 
-		    td_neighbor_print(nbr),
-		    td_state_string[old_state], 
-		    td_state_string[nbr->state],
-		    td_event_string[nsm_event]);
+		if(IS_ZEBRA_DEBUG_EVENT)
+			zlog_info("%s NSM:Sta Chg %s=>%s(%s)", 
+			    td_neighbor_print(nbr),
+			    td_state_string[old_state], 
+			    td_state_string[nbr->state],
+			    td_event_string[nsm_event]);
 
 
 		nbr->state_log[nbr->changes % MAX_NBR_STATE_LOG].state = old_state;

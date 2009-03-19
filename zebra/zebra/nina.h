@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.h,v 1a112ce63ba0 2008/09/24 09:24:22 tazaki $
+ * $Id: nina.h,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -150,5 +150,6 @@ struct nina
 int nina_init();
 void nina_set_delay_na_timer(struct td_neighbor *);
 void nina_send_ratio(struct interface *);
+int nina_delay_na_timer(struct thread *);
 
 #endif /* __NINA_H__ */

@@ -324,6 +324,12 @@ main (int argc, char **argv)
   /* Needed for BSD routing socket. */
   pid = getpid ();
 
+#if 1
+  if (IS_ZEBRA_DEBUG_ROUTE)
+	  if_dump_all ();
+  thread_add_timer(master, rib_dump_timer, NULL, 1);
+#endif
+
   /* Make vty server socket. */
   vty_serv_sock (vty_addr,
 		 vty_port ? vty_port : ZEBRA_VTY_PORT, ZEBRA_VTYSH_PATH);

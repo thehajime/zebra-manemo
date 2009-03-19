@@ -37,6 +37,7 @@ Boston, MA 02110-1301, USA.  */
 
 /* Default rtm_table for all clients */
 extern int rtm_table_default;
+extern struct thread *master;
 
 /* Each route type's string and default distance value. */
 struct
@@ -1656,11 +1657,12 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   if (same)
     newrib_free (same);
 
-  zlog_info ("RIB: add route %s/%d via %s ifindex %d",
-      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
-      p->prefixlen,
-      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
-      ifindex);
+  if (IS_ZEBRA_DEBUG_KERNEL)
+	  zlog_info ("RIB: add route %s/%d via %s ifindex %d",
+	      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
+	      p->prefixlen,
+	      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
+	      ifindex);
 
   return 0;
 }
@@ -1791,11 +1793,12 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 
   route_unlock_node (rn);
 
-  zlog_info ("RIB: delete route %s/%d via %s ifindex %d",
-      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
-      p->prefixlen,
-      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
-      ifindex);
+  if (IS_ZEBRA_DEBUG_KERNEL)
+	  zlog_info ("RIB: delete route %s/%d via %s ifindex %d",
+	      inet_ntop (AF_INET6, &p->prefix, buf1, BUFSIZ),
+	      p->prefixlen,
+	      gate ? inet_ntop (AF_INET6, gate, buf2, BUFSIZ) : "NULL",
+	      ifindex);
 
   return 0;
 }
@@ -2220,4 +2223,116 @@ rib_init ()
 {
   /* VRF initialization.  */
   vrf_init ();
+}
+
+
+void
+rib_dump()
+{
+	struct route_table *table;
+	struct route_node *rn;
+	struct rib *rib;
+	char buf[BUFSIZ];
+	struct nexthop *nexthop;
+
+	/* IPv4 */
+//	zlog_info("IPv4 RIB");
+	table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+	if (! table)
+		return;
+
+	/* Show all IPv4 route. */
+	for (rn = route_top (table); rn; rn = route_next (rn)){
+		for (rib = rn->info; rib; rib = rib->next)
+		{
+			/* Nexthop information. */
+			for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
+			{
+				if (nexthop == rib->nexthop)
+				{
+					/* Prefix information. */
+					zlog_info ("%c%c%c %s/%d",
+					    route_type_char (rib->type),
+					    CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED)
+					    ? '>' : ' ',
+					    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)
+					    ? '*' : ' ',
+					    inet_ntop (rn->p.family, &rn->p.u.prefix, buf, BUFSIZ),
+					    rn->p.prefixlen);
+				}
+			}
+
+		}
+	}
+
+
+	/* IPv6 */
+//	zlog_info("IPv6 RIB");
+	table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+	if (! table)
+		return;
+
+	/* Show all IPv6 route. */
+	for (rn = route_top (table); rn; rn = route_next (rn)){
+		for (rib = rn->info; rib; rib = rib->next)
+		{
+			/* Nexthop information. */
+			for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
+			{
+				if (nexthop == rib->nexthop)
+				{
+					char gate_str[64];
+					int len = 0;
+					switch (nexthop->type)
+					{
+					case NEXTHOP_TYPE_IPV6:
+					case NEXTHOP_TYPE_IPV6_IFINDEX:
+					case NEXTHOP_TYPE_IPV6_IFNAME:
+						len += sprintf(gate_str, " %s",
+						    inet_ntop (AF_INET6, &nexthop->gate.ipv6, buf, BUFSIZ));
+						if (nexthop->type == NEXTHOP_TYPE_IPV6_IFNAME)
+							len += sprintf (gate_str + len, ", %s", nexthop->ifname);
+						else if (nexthop->ifindex)
+							len += sprintf (gate_str + len, ", via %s", ifindex2ifname (nexthop->ifindex));
+						break;
+					case NEXTHOP_TYPE_IFINDEX:
+						len += sprintf(gate_str + len, " directly connected, %s",
+						    ifindex2ifname (nexthop->ifindex));
+						break;
+					case NEXTHOP_TYPE_IFNAME:
+						len += sprintf (gate_str + len, " directly connected, %s",
+						    nexthop->ifname);
+						break;
+					case NEXTHOP_TYPE_BLACKHOLE:
+						len += sprintf(gate_str + len, " directly connected, via Null0");
+						break;
+					default:
+						break;
+					}
+
+					/* Prefix information. */
+					zlog_info ("%c%c%c %s/%d via%s",
+					    route_type_char (rib->type),
+					    CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED)
+					    ? '>' : ' ',
+					    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)
+					    ? '*' : ' ',
+					    inet_ntop (AF_INET6, &rn->p.u.prefix6, buf, BUFSIZ),
+					    rn->p.prefixlen, gate_str);
+				}
+			}
+
+		}
+	}
+
+	return;
+}
+
+int
+rib_dump_timer(struct thread *thread)
+{
+	if (IS_ZEBRA_DEBUG_ROUTE)
+		rib_dump();
+	thread_add_timer(master, rib_dump_timer, NULL, 5);
+	return 0;
 }

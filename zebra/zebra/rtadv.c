@@ -58,7 +58,6 @@ int if_join_all_router (int, struct interface *);
 int if_leave_all_router (int, struct interface *);
 
 struct rtadv *rtadv = NULL;
-extern struct td_master *td;
 extern struct thread_master *master;
 
 
@@ -214,16 +213,25 @@ rtadv_send_packet (int sock, struct interface *ifp,
 
       pinfo->nd_opt_pi_flags_reserved = 0;
       if (rprefix->AdvOnLinkFlag)
-	pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
+				pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
       if (rprefix->AdvAutonomousFlag)
-	pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
+				pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 
       pinfo->nd_opt_pi_valid_time = htonl (rprefix->AdvValidLifetime);
       pinfo->nd_opt_pi_preferred_time = htonl (rprefix->AdvPreferredLifetime);
       pinfo->nd_opt_pi_reserved2 = 0;
 
-      memcpy (&pinfo->nd_opt_pi_prefix, &rprefix->prefix.u.prefix6,
-	      sizeof (struct in6_addr));
+      /* rootMR or floated tree, adv configured prefix(own prefix==ingress?) */
+      if(!td->attach_rtr || td->tio.depth == 1 || 
+				  !CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG)){
+	      memcpy (&pinfo->nd_opt_pi_prefix, &rprefix->prefix.u.prefix6,
+						sizeof (struct in6_addr));
+      }
+      /* Member of tree, adv parent MR's prefix */
+      else{
+	      memcpy (&pinfo->nd_opt_pi_prefix, &td->attach_rtr->adv_prefix.u.prefix6,
+						sizeof (struct in6_addr));
+      }
 
 #ifdef DEBUG
       {
@@ -308,7 +316,7 @@ rtadv_send_packet (int sock, struct interface *ifp,
 
   td->ra_send++;
 
-  if(0)
+  if (IS_ZEBRA_DEBUG_PACKET)
     {
       zlog_info("RA: %s: SEND(%llu):RA_TD ifindex=%d", 
            ifp->name, td->ra_send, ifp->ifindex);
@@ -343,7 +351,8 @@ rtadv_timer (struct thread *thread)
 	if (--zif->rtadv.AdvIntervalTimer <= 0)
 	  {
 	    zif->rtadv.AdvIntervalTimer = zif->rtadv.MaxRtrAdvInterval;
-            rtadv_send_packet (rtadv->sock, ifp, &in6addr_linklocal_allnodes, 0);
+            rtadv_send_packet (rtadv->sock, ifp, 
+		(struct in6_addr *)&in6addr_linklocal_allnodes, 0);
 	  }
     }
   return 0;
@@ -352,10 +361,12 @@ rtadv_timer (struct thread *thread)
 void
 rtadv_process_solicit (struct interface *ifp, struct sockaddr_in6 *from)
 {
-  zlog_info ("Router solicitation received on %s", ifp->name);
+  if(IS_ZEBRA_DEBUG_EVENT)
+	  zlog_info ("Router solicitation received on %s", ifp->name);
 
   if(IN6_IS_ADDR_UNSPECIFIED(&from->sin6_addr))
-    rtadv_send_packet (rtadv->sock, ifp, &in6addr_linklocal_allnodes, 0);
+    rtadv_send_packet (rtadv->sock, ifp, 
+	(struct in6_addr *)&in6addr_linklocal_allnodes, 0);
   else
     rtadv_send_packet (rtadv->sock, ifp, &from->sin6_addr, 0);
 }
@@ -370,7 +381,9 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
   char abuf[INET6_ADDRSTRLEN];
   int new = 0;
 
-  zlog_info ("Router advertisement received");
+  if(IS_ZEBRA_DEBUG_EVENT)
+	  zlog_info ("Router advertisement received from %s", 
+				inet_ntop(AF_INET6, &from->sin6_addr, abuf, sizeof(abuf)));
 
   if(!IN6_IS_ADDR_LINKLOCAL(&from->sin6_addr)) {
 	  zlog_warn("RA: src %s is not link-local",
@@ -427,6 +440,12 @@ rtadv->nd_ra_retransmit;
         case ND_OPT_MTU:
           break;
         case ND_OPT_PREFIX_INFORMATION:
+					if(nbr){
+						memcpy(&nbr->adv_prefix.u.prefix,
+								&((struct nd_opt_prefix_info *)opt)->nd_opt_pi_prefix,
+								((struct nd_opt_prefix_info *)opt)->nd_opt_pi_prefix_len/8);
+						nbr->adv_prefix.family = AF_INET6;
+					}
 #ifdef USERLAND_ADDR_AUTOCONF
           td_process_prefix_info((struct nd_opt_prefix_info *)opt, ifp);
 #endif /* USERLAND_ADDR_AUTOCONF */
@@ -461,6 +480,7 @@ rtadv->nd_ra_retransmit;
         zlog_info("TD: tio depth is %hhu(via %s)", 
              nbr->tree_depth, nbr->ifp->name);
 
+#ifdef HAVE_KBFD
       if(new){
 	      struct bfd_peer peer;
 	      /* Add BFD neighbor */
@@ -470,6 +490,7 @@ rtadv->nd_ra_retransmit;
 	      peer.type = BFD_PEER_SINGLE_HOP;
 	      kernel_bfd_add_peer (&peer, ZEBRA_ROUTE_MNDP);
       }
+#endif /* HAVE_KBFD */
     }
 
   /* Tree Discovery Process */
@@ -1040,6 +1061,47 @@ DEFUN (no_ipv6_nd_other_config_flag,
   return CMD_SUCCESS;
 }
 
+DEFUN (ipv6_nd_prefix_advertisement_default,
+       ipv6_nd_prefix_advertisement_default_cmd,
+       "ipv6 nd prefix-advertisement",
+       IP_STR
+       "Neighbor discovery\n"
+       "Prefix information\n")
+{
+  int i;
+  int ret;
+  struct interface *ifp;
+  struct zebra_if *zebra_if;
+  struct rtadv_prefix *rp;
+  struct listnode *node;
+
+  ifp = (struct interface *) vty->index;
+  zebra_if = ifp->info;
+
+  rp = rtadv_prefix_new();
+  for(node = listhead(ifp->connected); node; nextnode(node)) {
+          struct connected *ifc = getdata(node);
+          struct prefix *p = ifc->address;
+          if(p->family != AF_INET6)
+		  continue;
+	  /* set first non-ll prefix to adv */
+          if(!IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
+		  prefix_copy(&rp->prefix, p);
+		  apply_mask(&rp->prefix);
+		  break;
+	  }
+  }
+
+  rp->AdvOnLinkFlag = 1;
+  rp->AdvAutonomousFlag = 1;
+  rp->AdvValidLifetime = RTADV_VALID_LIFETIME;
+  rp->AdvPreferredLifetime = RTADV_PREFERRED_LIFETIME;
+
+  rtadv_prefix_set (zebra_if, rp);
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (ipv6_nd_prefix_advertisement,
        ipv6_nd_prefix_advertisement_cmd,
        "ipv6 nd prefix-advertisement IPV6PREFIX VALID PREFERRED [onlink] [autoconfig]",
@@ -1108,6 +1170,45 @@ ALIAS (ipv6_nd_prefix_advertisement,
        "Neighbor discovery\n"
        "Prefix information\n"
        "IPv6 prefix\n");
+
+DEFUN (no_ipv6_nd_prefix_advertisement_default,
+       no_ipv6_nd_prefix_advertisement_default_cmd,
+       "no ipv6 nd prefix-advertisement",
+       NO_STR
+       IP_STR
+       "Neighbor discovery\n"
+       "Prefix information\n")
+{
+  int ret;
+  struct interface *ifp;
+  struct zebra_if *zebra_if;
+  struct rtadv_prefix rp;
+  struct listnode *node;
+
+  ifp = (struct interface *) vty->index;
+  zebra_if = ifp->info;
+
+  for(node = listhead(ifp->connected); node; nextnode(node)) {
+          struct connected *ifc = getdata(node);
+          struct prefix *p = ifc->address;
+          if(p->family != AF_INET6)
+		  continue;
+	  /* set first non-ll prefix to adv */
+          if(!IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6))) {
+		  prefix_copy(&rp.prefix, p);
+		  break;
+	  }
+  }
+
+  ret = rtadv_prefix_reset (zebra_if, &rp);
+  if (!ret)
+    {
+      vty_out (vty, "Non-exist IPv6 prefix%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  return CMD_SUCCESS;
+}
 
 DEFUN (no_ipv6_nd_prefix_advertisement,
        no_ipv6_nd_prefix_advertisement_cmd,
@@ -1186,12 +1287,15 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   for (node = listhead(zif->rtadv.AdvPrefixList); node; nextnode (node))
     {
       rprefix = getdata (node);
-      vty_out (vty, " ipv6 nd prefix-advertisement %s/%d %d %d",
-	       inet_ntop (AF_INET6, &rprefix->prefix.u.prefix6, 
-			  buf, INET6_ADDRSTRLEN),
-	       rprefix->prefix.prefixlen,
-	       rprefix->AdvValidLifetime,
-	       rprefix->AdvPreferredLifetime);
+      if (connected_check_ipv6(ifp, rprefix))
+	      vty_out (vty, " ipv6 nd prefix-advertisement");
+      else
+	      vty_out (vty, " ipv6 nd prefix-advertisement %s/%d %d %d",
+		  inet_ntop (AF_INET6, &rprefix->prefix.u.prefix6, 
+		      buf, INET6_ADDRSTRLEN),
+		  rprefix->prefix.prefixlen,
+		  rprefix->AdvValidLifetime,
+		  rprefix->AdvPreferredLifetime);
       if (rprefix->AdvOnLinkFlag)
 	vty_out (vty, " onlink");
       if (rprefix->AdvAutonomousFlag)
@@ -1269,6 +1373,9 @@ rtadv_init ()
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_advertisement_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_advertisement_no_val_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_prefix_advertisement_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_prefix_advertisement_default_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_prefix_advertisement_default_cmd);
+
 }
 
 int
@@ -1287,7 +1394,8 @@ if_join_all_router (int sock, struct interface *ifp)
   if (ret < 0)
     zlog_warn ("can't setsockopt IPV6_JOIN_GROUP: %s", strerror (errno));
 
-  zlog_info ("rtadv: %s join to all-routers multicast group", ifp->name);
+  if(IS_ZEBRA_DEBUG_EVENT)
+	  zlog_info ("rtadv: %s join to all-routers multicast group", ifp->name);
 
   return 0;
 }
@@ -1320,3 +1428,10 @@ rtadv_init ()
   /* Empty.*/;
 }
 #endif /* RTADV && HAVE_IPV6 */
+
+/* Local Variables: */
+/* c-basic-offset: 2 */
+/* c-indent-level: 2 */
+/* indent-tabs-mode: t */
+/* tab-width: 2 */
+/* end: */

@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.h,v c02b24ba03e6 2008/08/03 11:11:33 tazaki $
+ * $Id: td.h,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -12,6 +12,8 @@
 
 #ifndef __TD_H__
 #define __TD_H_
+
+extern struct td_master *td;
 
 /* 
       0                   1                   2                   3
@@ -44,7 +46,7 @@
 #define   TIO_BASE_FLAG_BATTERY          (1 << 5)
 
 #define   ND_OPT_RA_TIO                  10 /* TBD */
-#define   TIO_TREE_DELAY_DEFAULT         12 /* 12800 msec */
+#define   TIO_TREE_DELAY_DEFAULT         128 /* 128 msec */
 
 #define   TD_HOLDDOWN_TIMER_DEFAULT     10 /* 10sec */
 #define   TD_RA_INTERVAL_DEFAULT        10 /* 10sec */
@@ -55,7 +57,7 @@
 #define   TD_TREE_ID(N)                 ((N)->tio ? (N)->tio->tree_id : \
                                          td->tio.tree_id)
 #define   TD_TREE_SAME(X,Y)             (memcmp(TD_TREE_ID((X)), TD_TREE_ID((Y)), \
-                                                sizeof(TD_TREE_ID((X)))) == 0)
+                                                sizeof(td->tio.tree_id)) == 0)
 
 struct nd_opt_tree_discovery
 {
