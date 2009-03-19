@@ -186,12 +186,14 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *),
 	  continue;
 	}
 
+#if 0
       if (snl.nl_pid != 0)
 	{
 	  zlog (NULL, LOG_ERR, "Ignoring non kernel message from pid %u",
 		snl.nl_pid);
 	  continue;
 	}
+#endif
 
       if (status == 0)
 	{
