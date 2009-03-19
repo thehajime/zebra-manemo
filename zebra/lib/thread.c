@@ -575,7 +575,6 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
 
       /* Calculate select wait timer. */
       timer_wait = thread_timer_wait (m, &timer_val);
-
       num = select (FD_SETSIZE, &readfd, &writefd, &exceptfd, timer_wait);
 
       if (num == 0)
@@ -583,7 +582,7 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
 
       if (num < 0)
 	{
-	  if (errno == EINTR)
+          if (errno == EINTR || errno == EAGAIN)
 	    continue;
 
 	  zlog_warn ("select() error: %s", strerror (errno));
