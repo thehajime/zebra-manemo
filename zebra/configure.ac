@@ -117,6 +117,8 @@ AC_ARG_ENABLE(tcp-signature,
 [  --enable-tcp-signature  enable TCP MD5 Signature Option (RFC2385) (for Linux and OpenBSD)])
 AC_ARG_ENABLE(kbfd-support,
 [  --enable-kbfd-support   enable kbfd support (for Linux netlink only)])
+AC_ARG_ENABLE(shisa-support,
+[  --enable-shisa-support  enable SHISA NEMO interaction support (for NetBSD only)])
 
 if test "${enable_broken_aliases}" = "yes"; then
   if test "${enable_netlink}" = "yes"
@@ -590,6 +592,13 @@ if test "${enable_kbfd_support}" = "yes"; then
    fi])
 AC_SUBST(KBFD_METHOD)
 AC_DEFINE(HAVE_KBFD,,KBFD Support)
+fi
+
+dnl ----------------------------
+dnl Check shisa support.
+dnl ----------------------------
+if test "${enable_shisa_support}" = "yes"; then
+AC_DEFINE(HAVE_SHISA,,SHISA Support)
 fi
 
 dnl --------------------
