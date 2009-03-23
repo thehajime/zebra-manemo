@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
+ * $Id: td.c,v 33ca87886493 2009/03/23 15:44:53 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -605,11 +605,23 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 
 				rtadv_event (RTADV_TIMER, 1);
 			}
+
+			/* if recvd tree-id is own tree-id, it seems to loop, 
+				 so avoid to attach */
+			if(nbr->tio && (memcmp(td->tio.tree_id, TD_TREE_ID(nbr), 
+									sizeof(nbr->tio->tree_id)) == 0))
+			{
+				if(IS_ZEBRA_DEBUG_EVENT)
+					zlog_info("TD: It looks like formed loop(%s). discard and leave current tree",
+							td_neighbor_print(nbr));
+					/* break tree loop */
+					td_change_attach_router(td->attach_rtr, NULL);
+			}
 		}
 		/* from same tree */
 		else if(TD_TREE_SAME(td->attach_rtr, nbr))
 		{
-			/* draft-td-06 Sec.5, 5 */
+		/* draft-td-06 Sec.5, 5 */
 			if(td->attach_rtr->tree_depth >= nbr->tree_depth)
 			{
 				ret = td_tio_cmp(td->attach_rtr, nbr);
