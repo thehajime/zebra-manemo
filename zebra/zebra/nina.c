@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
+ * $Id: nina.c,v b2a43024744b 2009/03/23 15:44:24 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -421,6 +421,10 @@ nina_send_ratio(struct interface *ifp)
 		/* reachable list */
 		for(rn = route_top(nina_top->reachable); rn; rn = route_next (rn)) {
 			if((nina = rn->info) != NULL) {
+				if(ifp != nina->nbr->ifp) {
+					continue;
+				}
+
 				if(nina->state == NINO_CONFIRMED){
 					nina->state = NINO_PENDING;
 					nina->retries = 0;
