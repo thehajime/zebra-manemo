@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
+ * $Id: td_neighbor.c,v 40a92bb8c6a7 2009/03/23 15:44:33 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -479,7 +479,7 @@ td_nsm_event(struct td_neighbor *nbr, int nsm_event)
 	/* killing neighbor */
 	if(next_state == TD_NBR_STATE_MAX)
 	{
-		zlog_info("NSM: Neighbor deleted");
+		zlog_info("NSM:Neighbor deleted (%s)", td_neighbor_print(nbr));
 		return 0;
 	}
 
