@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 33ca87886493 2009/03/23 15:44:53 tazaki $
+ * $Id: td.c,v a4b2e13e6929 2009/05/08 02:33:34 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -687,7 +687,15 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 				/* draft-td-06 Sec.5, 6 
 				   move into new tree with Tree Hop Timer */
 				if(td->tio.depth == nbr->tree_depth){
-					if(ntohl(*(uint32_t *)(&nbr->tio->tree_pref)) > 
+					/* ONLY prevent from loop during E-E */
+					if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED)) {
+						if(nbr->state != NSM_HeldDown){
+							if(IS_ZEBRA_DEBUG_EVENT)
+								zlog_info("Chg Tree: 4-1");
+							td_change_attach_router(NULL, nbr);
+						}
+					}
+					else if(ntohl(*(uint32_t *)(&nbr->tio->tree_pref)) > 
 							ntohl(*(uint32_t *)(&td->tio.tree_pref))){
 
 						if(IS_ZEBRA_DEBUG_EVENT)
@@ -700,16 +708,6 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 							td_change_attach_router(NULL, nbr);
 						}
 					}
-
-				/* ONLY prevent from loop during E-E */
-					if(nbr->tio && (nbr->tio->flags & TIO_BASE_FLAG_GROUNDED)) {
-						if(nbr->state != NSM_HeldDown){
-							if(IS_ZEBRA_DEBUG_EVENT)
-								zlog_info("Chg Tree: 4-1");
-							td_change_attach_router(NULL, nbr);
-						}
-					}
-
 				}
 				else{
 						if(nbr->state != NSM_HeldDown){
