@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v 40a92bb8c6a7 2009/03/23 15:44:33 tazaki $
+ * $Id: td_neighbor.c,v 91daed56d61f 2009/08/28 04:48:46 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -180,7 +180,7 @@ nsm_new_neighbor(struct td_neighbor *nbr)
 int
 nsm_ignore(struct td_neighbor *nbr)
 {
-	zlog_debug("nsm_ignore called");
+	zlog_debug("nsm_ignore called (%s)", td_neighbor_print(nbr));
 	return 0;
 }
 
