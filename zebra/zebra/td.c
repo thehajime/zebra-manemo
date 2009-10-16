@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v a4b2e13e6929 2009/05/08 02:33:34 tazaki $
+ * $Id: td.c,v 3753d5a22cfd 2009/10/16 03:24:40 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -1132,7 +1132,7 @@ td_init()
   td->tio.tree_pref = 0;
 	/* FIXME! */
 	if(p)
-		srandom(*(unsigned int *)&p->u.val[4]);
+		srandom(*(unsigned int *)&p->u.val[15]);
   td->tio.boot_time = (random() & 0x00FFFFFF);
   /* draft-td-06 Sec.5, 1 (Fixed Router Case is 0) */
   td->tio.depth = 1;
