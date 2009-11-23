@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v b2a43024744b 2009/03/23 15:44:24 tazaki $
+ * $Id: nina.c,v 4d29e218afb8 2009/11/23 00:04:06 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -838,7 +838,7 @@ nina_read(struct thread *thread)
 	struct iovec iov;
 	struct cmsghdr  *cmsgptr;
 	struct in6_addr dst;
-	char adata[1024];
+	char adata[NINA_MSG_SIZE];
 	struct sockaddr_in6 from;
 	char abuf[INET6_ADDRSTRLEN];
 	u_char buf[NINA_MSG_SIZE];
