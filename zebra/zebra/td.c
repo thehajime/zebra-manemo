@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 3753d5a22cfd 2009/10/16 03:24:40 tazaki $
+ * $Id: td.c,v 56ddd5e3af93 2009/11/23 00:03:49 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -654,11 +654,28 @@ td_process_tree_discovery(struct td_neighbor *nbr)
 			if(ret > 0)
 			{
 				if(IS_ZEBRA_DEBUG_EVENT)
-					zlog_info("Chg Tree: 3");
+					zlog_info("Chg Tree: 3-1 (move to different tree)");
 				/* draft-td-06 Sec.5, 6 
 				   move into new tree with Tree Hop Timer */
 				td_change_attach_router(td->attach_rtr, nbr);
 			}
+
+			/* If both tree are floated, choose the tree which TreeID is greater  */
+			if(nbr->tio && !(nbr->tio->flags & TIO_BASE_FLAG_GROUNDED) &&
+				 td->attach_rtr->tio && !(td->attach_rtr->tio->flags & TIO_BASE_FLAG_GROUNDED))
+				{
+
+					if (memcmp(td->attach_rtr->tio->tree_id, nbr->tio->tree_id, 
+										 sizeof(nbr->tio->tree_id)) < 0)
+						{
+							if(IS_ZEBRA_DEBUG_EVENT)
+								zlog_info("Chg Tree: 3-2 (Both are floating tree)");
+
+							td_change_attach_router(td->attach_rtr, nbr);
+						}
+				}
+
+
 		}
 	}
 	else
