@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 4d29e218afb8 2009/11/23 00:04:06 tazaki $
+ * $Id: nina.c,v bbb156b6ddb6 2010/01/20 03:35:34 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -217,7 +217,7 @@ nina_send_packet(int sock, struct interface *ifp,
 #else
 	if (ifp->hw_addr_len != 0)
 	{
-		buf[len++] = ND_OPT_SOURCE_LINKADDR;
+		buf[len++] = ND_OPT_TARGET_LINKADDR;
 		buf[len++] = (ifp->hw_addr_len + 2) >> 3;
 
 		memcpy (buf + len, ifp->hw_addr, ifp->hw_addr_len);
