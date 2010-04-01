@@ -1746,7 +1746,7 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
 {
   int ret;
   struct addrinfo req;
-  struct addrinfo *ainfo;
+  struct addrinfo *ainfo = NULL;
   struct addrinfo *ainfo_save;
   int sock;
   char port_str[BUFSIZ];
