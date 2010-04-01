@@ -54,8 +54,9 @@ Boston, MA 02110-1301, USA.  */
 	    }                                                                 \
 	  if ((O)->t_write == NULL)                                           \
 	    (O)->t_write =                                                    \
-	      thread_add_write (master, ospf_write, (O), (O)->fd);            \
+	      thread_add_event (master, ospf_write, (O), (O)->fd);            \
         } while (0)
+//	      thread_add_write (master, ospf_write, (O), (O)->fd);	\
      
 /* Macro for OSPF ISM timer turn on. */
 #define OSPF_ISM_TIMER_ON(T,F,V) \

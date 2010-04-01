@@ -23,7 +23,8 @@ Boston, MA 02110-1301, USA.  */
 #define BGP_READ_ON(T,F,V)   THREAD_READ_ON(master,T,F,peer,V)
 #define BGP_READ_OFF(X)      THREAD_READ_OFF(X)
 
-#define BGP_WRITE_ON(T,F,V)  THREAD_WRITE_ON(master,T,F,peer,V)
+#define BGP_WRITE_ON(T,F,V)  thread_add_event(master,bgp_write,peer,V)
+//#define BGP_WRITE_ON(T,F,V)  THREAD_WRITE_ON(master,T,F,peer,V)
 #define BGP_WRITE_OFF(X)     THREAD_WRITE_OFF(X)
 
 #define BGP_TIMER_ON(T,F,V)  THREAD_TIMER_ON(master,T,F,peer,V)
