@@ -1903,7 +1903,7 @@ ospf_recv_packet (int fd, struct interface **ifp)
 #endif
   char buff [sizeof (*cmsg) + sizeof (*pktinfo)];
   struct msghdr msgh = {NULL, 0, &iov, 1, buff,
-			sizeof (*cmsg) + sizeof (*pktinfo), 0};
+			CMSG_SPACE(sizeof (struct in_pktinfo)), 0};
     
   ret = recvfrom (fd, (void *)&iph, sizeof (iph), MSG_PEEK, NULL, 0);
   
