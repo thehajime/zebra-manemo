@@ -2250,15 +2250,43 @@ rib_dump()
 			{
 				if (nexthop == rib->nexthop)
 				{
+					char gate_str[64];
+					int len = 0;
+					switch (nexthop->type)
+					{
+					case NEXTHOP_TYPE_IPV4:
+					case NEXTHOP_TYPE_IPV4_IFINDEX:
+					case NEXTHOP_TYPE_IPV4_IFNAME:
+						len += sprintf(gate_str, " %s",
+						    inet_ntop (AF_INET, &nexthop->gate.ipv4, buf, BUFSIZ));
+						if (nexthop->type == NEXTHOP_TYPE_IPV4_IFNAME)
+							len += sprintf (gate_str + len, ", %s", nexthop->ifname);
+						else if (nexthop->ifindex)
+							len += sprintf (gate_str + len, ", via %s", ifindex2ifname (nexthop->ifindex));
+						break;
+					case NEXTHOP_TYPE_IFINDEX:
+						len += sprintf(gate_str + len, " directly connected, %s",
+						    ifindex2ifname (nexthop->ifindex));
+						break;
+					case NEXTHOP_TYPE_IFNAME:
+						len += sprintf (gate_str + len, " directly connected, %s",
+						    nexthop->ifname);
+						break;
+					case NEXTHOP_TYPE_BLACKHOLE:
+						len += sprintf(gate_str + len, " directly connected, via Null0");
+						break;
+					default:
+						break;
+					}
 					/* Prefix information. */
-					zlog_info ("%c%c%c %s/%d",
+					zlog_info ("%c%c%c %s/%d via%s",
 					    route_type_char (rib->type),
 					    CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED)
 					    ? '>' : ' ',
 					    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)
 					    ? '*' : ' ',
 					    inet_ntop (rn->p.family, &rn->p.u.prefix, buf, BUFSIZ),
-					    rn->p.prefixlen);
+                                                   rn->p.prefixlen, gate_str);
 				}
 			}
 
