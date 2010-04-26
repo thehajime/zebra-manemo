@@ -21,7 +21,7 @@ Boston, MA 02110-1301, USA.  */
 #ifndef _ZEBRA_VERSION_H
 #define _ZEBRA_VERSION_H
 
-#define ZEBRA_VERSION     "0.96"
+#define ZEBRA_VERSION     "0.95a-sfc"
 
 #define ZEBRA_BUG_ADDRESS "bug-zebra@gnu.org"
 

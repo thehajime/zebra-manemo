@@ -6,7 +6,7 @@ EXTRA_DIST = aclocal.m4 SERVICES TODO REPORTING-BUGS vtysh/Makefile.in \
 	vtysh/Makefile.am
 
 dist-hook:
-	mkdir $(distdir)/conftools
+	test -d $(distdir)/conftools || mkdir -f $(distdir)/conftools
 	cp -p $(srcdir)/conftools/config.guess $(distdir)/conftools
 	cp -p $(srcdir)/conftools/config.sub $(distdir)/conftools
 	cp -p $(srcdir)/conftools/install-sh $(distdir)/conftools
