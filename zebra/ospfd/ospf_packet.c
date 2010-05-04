@@ -592,7 +592,9 @@ ospf_write (struct thread *thread)
   /* If packets still remain in queue, call write thread. */
   if (!list_isempty (ospf->oi_write_q))
     ospf->t_write =                                              
-      thread_add_write (master, ospf_write, ospf, ospf->fd);
+      thread_add_event (master, ospf_write, ospf, ospf->fd);
+//    ospf->t_write =                                              
+//      thread_add_write (master, ospf_write, ospf, ospf->fd);
 
   return 0;
 }
