@@ -2165,6 +2165,8 @@ DEFUN (config_exit,
     case RIPNG_NODE:
     case OSPF_NODE:
     case OSPF6_NODE:
+    case OLSR6_NODE:
+    case SMF6_NODE:
     case KEYCHAIN_NODE:
     case MASC_NODE:
     case RMAP_NODE:
@@ -2217,6 +2219,8 @@ DEFUN (config_end,
     case RMAP_NODE:
     case OSPF_NODE:
     case OSPF6_NODE:
+    case OLSR6_NODE:
+    case SMF6_NODE:
     case KEYCHAIN_NODE:
     case KEYCHAIN_KEY_NODE:
     case MASC_NODE:

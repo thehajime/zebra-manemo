@@ -1,0 +1,7 @@
+Makefile
+*.o
+*.patch
+olsr6d
+tags
+TAGS
+.deps

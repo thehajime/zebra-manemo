@@ -1,0 +1,27 @@
+!
+! Zebra configuration saved from vty
+!   2006/07/25 05:23:33
+!
+hostname olsr6d@akechi
+password 8 zebra
+enable password zebra
+log file olsr6d.log
+log stdout
+service advanced-vty
+!
+!
+interface wi0
+!
+interface fwe0
+!
+interface fxp0
+ olsr6 enable
+!
+interface lo0
+!
+!
+router olsr6
+ hello-interval 1
+!
+line vty
+!

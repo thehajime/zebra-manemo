@@ -454,6 +454,7 @@ if grep IPV6_INRIA_VERSION /usr/include/netinet/in.h >/dev/null 2>&1; then
    AC_DEFINE(INRIA_IPV6,,Inria IPv6)
    RIPNGD="ripngd"
    OSPF6D="ospf6d"
+   OLSR6D="olsr6d"
    LIB_IPV6=""
    AC_MSG_RESULT(INRIA IPv6)
 fi
@@ -466,6 +467,7 @@ if grep WIDE /usr/include/netinet6/in6.h >/dev/null 2>&1; then
    AC_DEFINE(KAME,,KAME IPv6)
    RIPNGD="ripngd"
    OSPF6D="ospf6d"
+   OLSR6D="olsr6d"
    if test -d /usr/local/v6/lib -a -f /usr/local/v6/lib/libinet6.a; then
       LIB_IPV6="-L/usr/local/v6/lib -linet6"
    fi
@@ -519,6 +521,7 @@ if test "$zebra_cv_linux_ipv6" = "yes";then
    AC_DEFINE(LINUX_IPV6,,Linux IPv6)   
    RIPNGD="ripngd"
    OSPF6D="ospf6d"
+   OLSR6D="olsr6d"
    if test "$glibc" != "yes"; then
       INCLUDES="-I/usr/inet6/include"
       if test x`ls /usr/inet6/lib/libinet6.a 2>/dev/null` != x;then
@@ -650,6 +653,7 @@ AC_SUBST(RIPD)
 AC_SUBST(RIPNGD)
 AC_SUBST(OSPFD)
 AC_SUBST(OSPF6D)
+AC_SUBST(OLSR6D)
 AC_SUBST(VTYSH)
 AC_SUBST(INCLUDES)
 AC_SUBST(CURSES)
@@ -927,6 +931,7 @@ AC_DEFINE_UNQUOTED(PATH_RIPNGD_PID, "$ac_piddir/ripngd.pid",ripngd PID)
 AC_DEFINE_UNQUOTED(PATH_BGPD_PID, "$ac_piddir/bgpd.pid",bgpd PID)
 AC_DEFINE_UNQUOTED(PATH_OSPFD_PID, "$ac_piddir/ospfd.pid",ospfd PID)
 AC_DEFINE_UNQUOTED(PATH_OSPF6D_PID, "$ac_piddir/ospf6d.pid",ospf6d PID)
+AC_DEFINE_UNQUOTED(PATH_OLSR6D_PID, "$ac_piddir/olsr6d.pid",ospf6d PID)
 
 
 dnl ---------------------------
@@ -948,7 +953,7 @@ ac_cv_htonl_works=yes,
 ac_cv_htonl_works=no)])
 AC_MSG_RESULT($ac_cv_htonl_works)
 
-AC_OUTPUT(Makefile lib/Makefile zebra/Makefile ripd/Makefile ripngd/Makefile bgpd/Makefile ospfd/Makefile ospf6d/Makefile vtysh/Makefile doc/Makefile)
+AC_OUTPUT(Makefile lib/Makefile zebra/Makefile ripd/Makefile ripngd/Makefile bgpd/Makefile ospfd/Makefile ospf6d/Makefile vtysh/Makefile doc/Makefile olsr6d/Makefile)
 
 dnl -----------------------
 dnl Remap C to C++ compiler

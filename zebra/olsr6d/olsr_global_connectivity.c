@@ -1,0 +1,661 @@
+/*
+ * OLSR_Global_Connectivity.c
+ */
+#include <zebra.h>
+
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/sysctl.h>
+
+#include <net/if.h>
+//#include <net/if_types.h>
+#include <net/route.h>
+
+#include <netinet/in.h>
+//#include <netinet6/in6_var.h>
+//#include <netinet6/nd6.h>
+
+
+#include "thread.h"
+#include "if.h"
+#include "prefix.h"
+#include "linklist.h"
+#include "log.h"
+#include "command.h"
+
+#include "olsr_common.h"
+#include "olsr_node.h"
+#include "olsr_packet.h"
+
+#define HWADDRLEN	6
+
+
+DEFUN (show_ipv6_olsr6_global_prefix,
+       show_ipv6_olsr6_global_prefix_cmd,
+       "show ipv6 olsr6 global prefix",
+       SHOW_STR IP6_STR OLSR6_STR "Global prefix information\n")
+{
+  char igw_addr[40];
+  char igw_prefix[40];
+  struct listnode *ignode;
+  struct olsr_internet_gateway_tuple *igt;
+
+  vty_out (vty, "%-30s %s %s %s %s %s",
+           "IGW Address", "Global Prefix", "Prefix Length",
+           "IGW lifetime", "Prefix Lifetime", VTY_NEWLINE);
+
+  for (ignode = listhead (olsr.igw_list); ignode; nextnode (ignode))
+    {
+      igt = (struct olsr_internet_gateway_tuple *) ignode->data;
+
+      inet_ntop (AF_INET6, &igt->gw_global_addr, igw_addr, sizeof (igw_addr));
+      inet_ntop (AF_INET6, &igt->gw_prefix_addr, igw_prefix,
+                    sizeof (igw_prefix));
+
+      vty_out (vty, "%-30s %s %d %d %d %s",
+               igw_addr, igw_prefix, igt->gw_plen,
+               (int) igt->gw_lifetime, (int) igt->gw_prefix_lifetime,
+               VTY_NEWLINE);
+    }
+
+  return CMD_SUCCESS;
+}
+
+void
+olsr_global6_install_element ()
+{
+  install_element (VIEW_NODE, &show_ipv6_olsr6_global_prefix_cmd);
+  install_element (ENABLE_NODE, &show_ipv6_olsr6_global_prefix_cmd);
+}
+
+#ifdef HAVE_IPV6
+
+int
+if_ioctl_ipv6 (u_long request, caddr_t buffer)
+{
+  int sock;
+  int ret = 0;
+  int err = 0;
+
+  sock = socket (AF_INET6, SOCK_DGRAM, 0);
+  if (sock < 0)
+    {
+      perror ("socket");
+      exit (1);
+    }
+
+  ret = ioctl (sock, request, buffer);
+  if (ret < 0)
+    {
+      err = errno;
+    }
+  close (sock);
+  
+  if (ret < 0) 
+    {
+      errno = err;
+      return ret;
+    }
+  return 0;
+}
+
+#ifdef LINUX_IPV6
+#ifndef _LINUX_IN6_H
+/* linux/include/net/ipv6.h */
+struct in6_ifreq 
+{
+  struct in6_addr ifr6_addr;
+  u_int32_t ifr6_prefixlen;
+  int ifr6_ifindex;
+};
+#endif /* _LINUX_IN6_H */
+
+/* Interface's address add/delete functions. */
+int
+if_prefix_add_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  int ret;
+  struct prefix_ipv6 *p;
+  struct in6_ifreq ifreq;
+
+  p = (struct prefix_ipv6 *) ifc->address;
+
+  memset (&ifreq, 0, sizeof (struct in6_ifreq));
+
+  memcpy (&ifreq.ifr6_addr, &p->prefix, sizeof (struct in6_addr));
+  ifreq.ifr6_ifindex = ifp->ifindex;
+  ifreq.ifr6_prefixlen = p->prefixlen;
+
+  ret = if_ioctl_ipv6 (SIOCSIFADDR, (caddr_t) &ifreq);
+
+  return ret;
+}
+
+int
+if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  int ret;
+  struct prefix_ipv6 *p;
+  struct in6_ifreq ifreq;
+
+  p = (struct prefix_ipv6 *) ifc->address;
+
+  memset (&ifreq, 0, sizeof (struct in6_ifreq));
+
+  memcpy (&ifreq.ifr6_addr, &p->prefix, sizeof (struct in6_addr));
+  ifreq.ifr6_ifindex = ifp->ifindex;
+  ifreq.ifr6_prefixlen = p->prefixlen;
+
+  ret = if_ioctl_ipv6 (SIOCDIFADDR, (caddr_t) &ifreq);
+
+  return ret;
+}
+#else /* LINUX_IPV6 */
+#ifdef HAVE_IN6_ALIASREQ
+#ifndef ND6_INFINITE_LIFETIME
+#define ND6_INFINITE_LIFETIME 0xffffffffL
+#endif /* ND6_INFINITE_LIFETIME */
+int
+if_prefix_add_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  int ret;
+  struct in6_aliasreq addreq;
+  struct sockaddr_in6 addr;
+  struct sockaddr_in6 mask;
+  struct prefix_ipv6 *p;
+
+  p = (struct prefix_ipv6 * ) ifc->address;
+
+  memset (&addreq, 0, sizeof addreq);
+  strncpy ((char *)&addreq.ifra_name, ifp->name, sizeof addreq.ifra_name);
+
+  memset (&addr, 0, sizeof (struct sockaddr_in6));
+  addr.sin6_addr = p->prefix;
+  addr.sin6_family = p->family;
+#ifdef HAVE_SIN_LEN
+  addr.sin6_len = sizeof (struct sockaddr_in6);
+#endif
+  memcpy (&addreq.ifra_addr, &addr, sizeof (struct sockaddr_in6));
+
+  memset (&mask, 0, sizeof (struct sockaddr_in6));
+  masklen2ip6 (p->prefixlen, &mask.sin6_addr);
+  mask.sin6_family = p->family;
+#ifdef HAVE_SIN_LEN
+  mask.sin6_len = sizeof (struct sockaddr_in6);
+#endif
+  memcpy (&addreq.ifra_prefixmask, &mask, sizeof (struct sockaddr_in6));
+  
+  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME; 
+  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME; 
+
+  ret = if_ioctl_ipv6 (SIOCAIFADDR_IN6, (caddr_t) &addreq);
+  if (ret < 0)
+    return ret;
+  return 0;
+}
+
+int
+if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  int ret;
+  struct in6_aliasreq addreq;
+  struct sockaddr_in6 addr;
+  struct sockaddr_in6 mask;
+  struct prefix_ipv6 *p;
+
+  p = (struct prefix_ipv6 *) ifc->address;
+
+  memset (&addreq, 0, sizeof addreq);
+  strncpy ((char *)&addreq.ifra_name, ifp->name, sizeof addreq.ifra_name);
+
+  memset (&addr, 0, sizeof (struct sockaddr_in6));
+  addr.sin6_addr = p->prefix;
+  addr.sin6_family = p->family;
+#ifdef HAVE_SIN_LEN
+  addr.sin6_len = sizeof (struct sockaddr_in6);
+#endif
+  memcpy (&addreq.ifra_addr, &addr, sizeof (struct sockaddr_in6));
+
+  memset (&mask, 0, sizeof (struct sockaddr_in6));
+  masklen2ip6 (p->prefixlen, &mask.sin6_addr);
+  mask.sin6_family = p->family;
+#ifdef HAVE_SIN_LEN
+  mask.sin6_len = sizeof (struct sockaddr_in6);
+#endif
+  memcpy (&addreq.ifra_prefixmask, &mask, sizeof (struct sockaddr_in6));
+
+  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME; 
+  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME; 
+
+  ret = if_ioctl_ipv6 (SIOCDIFADDR_IN6, (caddr_t) &addreq);
+  if (ret < 0)
+    return ret;
+  return 0;
+}
+#else
+int
+if_prefix_add_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  return 0;
+}
+
+int
+if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
+{
+  return 0;
+}
+#endif /* HAVE_IN6_ALIASREQ */
+
+#endif /* LINUX_IPV6 */
+
+#endif /* HAVE_IPV6 */
+
+struct connected *
+connected_check_ipv6 (struct interface *ifp, struct prefix *p)
+{
+  struct connected *ifc;
+  struct listnode *node;
+
+  for (node = listhead (ifp->connected); node; node = nextnode (node))
+    {
+      ifc = getdata (node);
+
+      if (prefix_same (ifc->address, p))
+        return ifc;
+    }
+  return 0;
+}
+
+int
+olsr_ifaddr_add (struct interface *ifp, struct in6_addr *addr)
+{
+  struct prefix_ipv6 cp;
+  struct connected *ifc;
+  struct prefix_ipv6 *p;
+
+  cp.family = AF_INET6;
+  cp.prefixlen = 64;
+  cp.prefix = *addr;
+
+  ifc = connected_check_ipv6 (ifp, (struct prefix *) &cp);
+  if (! ifc)
+    {
+      ifc = connected_new ();
+      ifc->ifp = ifp;
+
+      /* Address. */
+      p = prefix_ipv6_new ();
+      *p = cp;
+      ifc->address = (struct prefix *) p;
+
+      listnode_add (ifp->connected, ifc);
+    }
+
+  if_prefix_add_ipv6 (ifp, ifc);
+
+  return 0;
+}
+
+/* This function is just for EUI-48. Other formats are to be supported */
+struct in6_addr
+olsr_generate_global_addr (struct in6_addr prefix, struct interface *ifp)
+{
+  char hw_addr[HWADDRLEN];
+  struct in6_addr global_addr;
+
+  memset (hw_addr, 0, sizeof(hw_addr));
+#ifdef HAVE_SOCKADDR_DL
+  memcpy (hw_addr, LLADDR(&ifp->sdl), HWADDRLEN);
+#else
+  memcpy (hw_addr, ifp->hw_addr, HWADDRLEN);
+#endif /* HAVE_SOCKADDR_DL */
+
+
+  memcpy (&global_addr, &prefix, sizeof (global_addr));
+  memcpy (&global_addr.s6_addr[8], hw_addr, 3);
+  global_addr.s6_addr[11] = 0xff;
+  global_addr.s6_addr[12] = 0xfe;
+  memcpy (&global_addr.s6_addr[13], &hw_addr[3], 3);
+
+  return global_addr;
+}
+
+struct olsr_internet_gateway_tuple *
+olsr_internet_gateway_set_lookup(set, gw_addr, prefix, plen)
+        struct list *set;
+        struct in6_addr gw_addr, prefix;
+        u_int plen;
+{
+  struct listnode *ignode;
+  struct olsr_internet_gateway_tuple *igt;
+
+  for (ignode = listhead (set); ignode; nextnode (ignode))
+    {
+      igt = (struct olsr_internet_gateway_tuple *) ignode->data;
+
+      if (IN6_IS_ADDR_SAME (igt->gw_global_addr, gw_addr) &&
+          IN6_IS_ADDR_SAME (igt->gw_prefix_addr, prefix) &&
+          (igt->gw_plen == plen) )
+        {
+          return igt;
+        }
+    }
+
+  return NULL;
+}
+
+void
+olsr_internet_gateway_set_create (struct list **set)
+{
+  *set = list_new ();
+  (*set)->del = free;
+
+  return;
+}
+
+struct olsr_internet_gateway_tuple *
+olsr_internet_gateway_set_add (set, new)
+        struct list *set;
+        struct olsr_internet_gateway_tuple *new;
+{
+  struct olsr_internet_gateway_tuple *igt;
+
+  igt = (struct olsr_internet_gateway_tuple *)
+        malloc (sizeof (struct olsr_internet_gateway_tuple));
+  if (igt == NULL)
+    {
+      perror ("olsr_topology_set_add");
+      return NULL;
+    }
+  memset(igt, 0, sizeof(struct olsr_internet_gateway_tuple));
+
+  memcpy (igt, new, sizeof (struct olsr_internet_gateway_tuple));
+  listnode_add (set, igt);
+
+  return igt;
+}
+
+void
+olsr_internet_gateway_set_delete (set, del)
+        struct list *set;
+        struct olsr_internet_gateway_tuple *del;
+{
+  listnode_delete (set, del);
+  free (del);
+  olsr_routing_set_update ();
+
+  return;
+}
+
+struct in6_addr
+olsr_generate_prefix (struct in6_addr *addr, int plen)
+{
+  int i;
+  int mask;
+  int bits, bytes;
+  struct in6_addr prefix;
+
+  bytes = plen / 8;
+  bits = plen % 8;
+
+  memset (&prefix, 0, sizeof (prefix));
+  memcpy (&prefix, addr, bytes);
+
+  mask = 1 << 7;
+  for (i =  0; i < bits; i++)
+    {
+      if (addr->s6_addr[bytes] | mask)
+        addr->s6_addr[bytes] |= mask;
+
+       mask >>= 1;
+    }
+
+  return prefix;
+}
+
+char *
+olsr_generate_igwadv_message (char *msg, struct connected *c)
+{
+  struct igw_adv_message *iam;
+
+  iam = (struct igw_adv_message *)msg;
+  iam->igw_plen = c->address->prefixlen;
+  iam->igw_addr = c->address->u.prefix6;
+  iam->igw_prefix =
+          olsr_generate_prefix (&c->address->u.prefix6, c->address->prefixlen);
+  iam->igw_lifetime = olsr.igw_prefix_lifetime;
+
+  return (char *) (iam + 1);
+}
+
+struct in6_addr
+olsr_plen2netmask (int plen)
+{
+  int i, j;
+  u_char bit;
+  int bytes, bits;
+  struct in6_addr netmask;
+
+  memset (&netmask, 0, sizeof (netmask));
+  
+  bytes = plen / 8;
+  bits = plen % 8;
+
+  for (i = 0; i < bytes; i++)
+    netmask.s6_addr[i] = 0xff;
+
+  bit = 128;
+  for (j = 0; j < bits; j++)
+    {
+      netmask.s6_addr[i] |= bit;
+      bit >>= 1;
+    }
+
+  return netmask;
+}
+
+void
+olsr_set_global_addr (it, prefix, plen)
+        struct olsr_interface_tuple *it;
+        struct in6_addr prefix;
+        int  plen;
+{
+  struct in6_addr	in6;
+
+  in6 = olsr_generate_global_addr (prefix, it->ifp);
+
+  olsr_ifaddr_add (it->ifp, &in6);
+
+  return;
+}
+
+
+char *
+olsr_process_igw_adv (char *msg, struct in6_addr *recv_addr,
+                         struct in6_addr *sender)
+{
+  char *end;
+  time_t now;
+  struct in6_addr default_addr;
+  struct olsr_message_header *mh;
+  struct olsr_interface_tuple *it;
+  struct olsr_internet_gateway_tuple *igt, new;
+  struct igw_adv_message *iam;
+  struct olsr_nwassoc_tuple *gw, new_gw;
+
+  mh = (struct olsr_message_header *) msg;
+
+  now = time (NULL);
+  end = msg + ntohs (mh->size);
+
+  if (olsr.igw_mode == IGW_MODE_GATEWAY) 
+    return end; /* skip other gateways' advertisement */
+
+  if (IN6_IS_ADDR_LINKLOCAL (&mh->originator))
+    {
+      zlog_warn ("process_igw_adv: RA from a node with linklocal addr");
+      return end;
+    }
+
+
+  iam = (struct igw_adv_message *) (mh + 1);
+  if ( IN6_IS_ADDR_LINKLOCAL (&iam->igw_prefix)
+      || IN6_IS_ADDR_SITELOCAL (&iam->igw_prefix))
+    {
+      zlog_warn ("process_igw_adv: Advertised prefix is not global");
+      return end;
+    }
+
+  if (iam->igw_plen > 128)
+    {
+      zlog_warn ("process_igw_adv: Prefix Length is not valid");
+      return end;
+    }
+
+  if (iam->igw_lifetime <= 0)
+    {
+      zlog_warn ("process_igw_adv: Prefix Lifetime is not valid");
+printf ("lifetime: %d\n", iam->igw_lifetime);
+      return end;
+    }
+
+  printf ("process_adv: prefix %s plen %d\n", ip6_sprintf (&iam->igw_prefix), iam->igw_plen);
+  gw = NULL;
+  igt = olsr_internet_gateway_set_lookup
+          (olsr.igw_list, iam->igw_addr, iam->igw_prefix, iam->igw_plen);
+  if (igt == NULL)
+    {
+      memset (&new, 0, sizeof (new));
+      new.gw_global_addr = iam->igw_addr;
+      new.gw_prefix_addr = iam->igw_prefix;
+      new.gw_plen = iam->igw_plen;
+      new.gw_manet_addr = mh->originator;
+
+      igt = olsr_internet_gateway_set_add (olsr.igw_list, &new);
+      it = olsr_interface_lookup_by_addr (olsr.interface_set, *recv_addr);
+      if (it) {
+        olsr_set_global_addr (it, iam->igw_prefix, iam->igw_plen);
+        memset (&new_gw, 0, sizeof (new_gw));
+        new_gw.A_gateway_addr = mh->originator;
+        new_gw.A_time = now + iam->igw_lifetime;
+
+        gw = olsr_nwassoc_set_add (olsr.nw_assoc_set, new_gw);
+      }
+    }
+
+  if ( ! gw )
+    {
+      memset (&default_addr, 0, sizeof (default_addr));
+      gw = olsr_nwassoc_set_lookup
+               (olsr.nw_assoc_set, mh->originator, default_addr, 0);
+    }
+
+  if (gw)
+      gw->A_time = now + iam->igw_lifetime;
+
+  igt->gw_prefix_lifetime = now + iam->igw_lifetime;
+  igt->gw_lifetime = now + iam->igw_lifetime;
+
+  return end;
+}
+
+int
+olsr_igwadv_send_thread ()
+{
+  int size;
+  char *top, *end;
+  char msg[MAXPACKETSIZE];
+  struct listnode *inode, *cnode;
+  struct in6_addr dst;
+  struct in6_addr *if_addr;
+  struct connected *c;
+  struct olsr_interface_tuple *it;
+  struct olsr_message_header *mh;
+
+  if (olsr.igw_mode != IGW_MODE_GATEWAY)
+    return 0; /* igw_mode switched to the node mode */
+
+  thread_add_timer(master, olsr_igwadv_send_thread, NULL, olsr.igwadv_interval);
+
+  if (!mainaddr_set)
+    return  0;
+
+  inet_pton (AF_INET6, OLSR_MULTICAST_GROUP, &dst);
+
+  size = sizeof (struct olsr_message_header) + sizeof (struct igw_adv_message);
+
+  mh = (struct olsr_message_header *) msg;
+  mh->type = RA_MESSAGE;
+  mh->vtime = olsr_message_encode_time (OLSR_DEFAULT_VALIDTIME);
+  mh->size = htons (size);
+  mh->originator = olsr.main_addr;
+  mh->ttl = OLSR_DEFAULT_TTL;
+  mh->hopcount = 0;
+  mh->seq = htons (mseq++);
+
+  top = (char *) (mh + 1);
+
+  for (inode = listhead (olsr.interface_set); inode; nextnode (inode))
+    {
+      it = (struct olsr_interface_tuple *) inode->data;
+
+      if ( !(it->status & ACTIVE) || (!it->optset))
+        continue;
+
+      
+      for (cnode = listhead (it->ifp->connected); cnode; nextnode (cnode))
+        {
+          c = (struct connected *) cnode->data;
+          if (c->address->family != AF_INET6)
+            continue;
+
+          if_addr = &c->address->u.prefix6;
+          if (IN6_IS_ADDR_LINKLOCAL(if_addr) || IN6_IS_ADDR_SITELOCAL(if_addr))
+            continue;
+
+          end = olsr_generate_igwadv_message (top, c);
+          olsr_sendmsg (it, msg, dst,  size);
+        }
+    }
+  memset (msg, 0, MAXPACKETSIZE);
+
+  return 0;
+}
+
+void
+olsr_global_prefix_expire_check()
+{
+  time_t now;
+  struct in6_addr default_addr;
+  struct listnode *ignode, *next;
+  struct olsr_nwassoc_tuple *del_gw;
+  struct olsr_internet_gateway_tuple *igt;
+
+  now = time(NULL);
+
+  ignode = listhead(olsr.igw_list);
+  while (ignode)
+    {
+      igt = (struct olsr_internet_gateway_tuple *)ignode->data;
+
+      next = ignode->next;
+      if (igt->gw_lifetime < now)
+        {
+           memset (&default_addr, 0, sizeof (default_addr));
+           del_gw = olsr_nwassoc_set_lookup
+                   (olsr.nw_assoc_set, igt->gw_manet_addr, default_addr, 0);
+           if (del_gw)
+             olsr_nwassoc_set_delete(olsr.nw_assoc_set, del_gw);
+        }
+      if (igt->gw_prefix_lifetime < now)
+        {
+           /* addr delete functionarity */
+           olsr_internet_gateway_set_delete(olsr.igw_list, igt);
+        }
+      ignode = next;
+    }
+
+  return;
+}
