@@ -188,6 +188,8 @@ rtadv_send_packet (int sock, struct interface *ifp,
     rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
   if (zif->rtadv.AdvOtherConfigFlag)
     rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_OTHER;
+  if (zif->rtadv.AdvHomeAgentFlag)
+    rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_HOME_AGENT;
   if(expire)
     rtadv->nd_ra_router_lifetime = htons (0);
   else
@@ -196,6 +198,18 @@ rtadv_send_packet (int sock, struct interface *ifp,
   rtadv->nd_ra_retransmit = htonl (0);
 
   len = sizeof (struct nd_router_advert);
+
+  if (zif->rtadv.AdvHomeAgentFlag)
+    {
+      struct nd_opt_homeagent_info *ndopt_hai = 
+				(struct nd_opt_homeagent_info *)(buf + len);
+      ndopt_hai->nd_opt_hai_type = ND_OPT_HA_INFORMATION;
+      ndopt_hai->nd_opt_hai_len = 1;
+      ndopt_hai->nd_opt_hai_reserved = 0;
+      ndopt_hai->nd_opt_hai_preference = htons(zif->rtadv.HomeAgentPreference);
+      ndopt_hai->nd_opt_hai_lifetime = htons(zif->rtadv.HomeAgentLifetime);
+      len += sizeof(struct nd_opt_homeagent_info);
+    }
 
   /* Fill in prefix. */
   for (node = listhead (zif->rtadv.AdvPrefixList); node; nextnode (node))
@@ -987,6 +1001,137 @@ DEFUN (no_ipv6_nd_reachable_time,
   return CMD_SUCCESS;
 }
 
+DEFUN (ipv6_nd_homeagent_preference,
+       ipv6_nd_homeagent_preference_cmd,
+       "ipv6 nd home-agent-preference PREFERENCE",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent preference\n"
+       "Home Agent preference value 0..65535\n")
+{
+  u_int32_t hapref;
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  hapref = (u_int32_t) atol (argv[0]);
+
+  if (hapref > 65535)
+    {
+      vty_out (vty, "Invalid Home Agent preference%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  zif->rtadv.HomeAgentPreference = hapref;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_nd_homeagent_preference,
+       no_ipv6_nd_homeagent_preference_cmd,
+       "no ipv6 nd home-agent-preference",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent preference\n")
+{
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  zif->rtadv.HomeAgentPreference = 0;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ipv6_nd_homeagent_lifetime,
+       ipv6_nd_homeagent_lifetime_cmd,
+       "ipv6 nd home-agent-lifetime SECONDS",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent lifetime\n"
+       "Home Agent lifetime in seconds\n")
+{
+  u_int32_t ha_ltime;
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  ha_ltime = (u_int32_t) atol (argv[0]);
+
+  if (ha_ltime > RTADV_MAX_HALIFETIME)
+    {
+      vty_out (vty, "Invalid Home Agent Lifetime time%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  zif->rtadv.HomeAgentLifetime = ha_ltime;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_nd_homeagent_lifetime,
+       no_ipv6_nd_homeagent_lifetime_cmd,
+       "no ipv6 nd home-agent-lifetime",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent lifetime\n")
+{
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  zif->rtadv.HomeAgentLifetime = 0;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ipv6_nd_homeagent_config_flag,
+       ipv6_nd_homeagent_config_flag_cmd,
+       "ipv6 nd home-agent-config-flag",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent configuration flag\n")
+{
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  zif->rtadv.AdvHomeAgentFlag = 1;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_nd_homeagent_config_flag,
+       no_ipv6_nd_homeagent_config_flag_cmd,
+       "no ipv6 nd home-agent-config-flag",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Home Agent configuration flag\n")
+{
+  struct interface *ifp;
+  struct zebra_if *zif;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  zif->rtadv.AdvHomeAgentFlag = 0;
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (ipv6_nd_managed_config_flag,
        ipv6_nd_managed_config_flag_cmd,
        "ipv6 nd managed-config-flag",
@@ -1370,6 +1515,12 @@ rtadv_init ()
   install_element (INTERFACE_NODE, &no_ipv6_nd_managed_config_flag_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_other_config_flag_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_other_config_flag_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_homeagent_config_flag_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_homeagent_config_flag_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_homeagent_preference_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_homeagent_preference_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_homeagent_lifetime_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_homeagent_lifetime_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_advertisement_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_advertisement_no_val_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_prefix_advertisement_cmd);

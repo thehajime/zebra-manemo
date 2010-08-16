@@ -62,4 +62,16 @@ void rtadv_event (enum rtadv_event, int);
 void rtadv_send_packet (int, struct interface *, 
                         const struct in6_addr *, int);
 
+#ifndef ND_OPT_HA_INFORMATION
+#define ND_OPT_HA_INFORMATION	8   /* HA Information Option */
+#endif
+
+struct nd_opt_homeagent_info {  /* Home Agent info */
+        u_int8_t        nd_opt_hai_type;
+        u_int8_t        nd_opt_hai_len;
+        u_int16_t       nd_opt_hai_reserved;
+        u_int16_t       nd_opt_hai_preference;
+        u_int16_t       nd_opt_hai_lifetime;
+} __attribute__((__packed__));
+
 #endif /* _ZEBRA_RTADV_H */

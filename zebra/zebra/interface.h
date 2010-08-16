@@ -128,6 +128,29 @@ struct rtadvconf
      advertisement is sent. The link-local prefix SHOULD NOT be
      included in the list of advertised prefixes. */
   struct list *AdvPrefixList;
+
+  /* The TRUE/FALSE value to be placed in the "Home agent"
+     flag field in the Router Advertisement.  See [RFC3775 7.1].
+
+     Default: FALSE */
+  int AdvHomeAgentFlag;
+#ifndef ND_RA_FLAG_HOME_AGENT
+#define ND_RA_FLAG_HOME_AGENT 	0x20
+#endif
+
+  /* The value to be placed in Home Agent Information option if Home 
+     Flag is set.
+     Default: 0 */
+  int HomeAgentPreference;
+
+  /* The value to be placed in Home Agent Information option if Home 
+     Flag is set. Lifetime (seconds) MUST not be greater than 18.2 
+     hours. 
+     The value 0 has special meaning: use of AdvDefaultLifetime value.
+     
+     Default: 0 */
+  int HomeAgentLifetime;
+#define RTADV_MAX_HALIFETIME 65520 /* 18.2 hours */
 };
 
 #endif /* RTADV */

@@ -455,6 +455,10 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
       else
 	vty_out (vty, "  Hosts use stateless autoconfig for addresses.%s",
 		 VTY_NEWLINE);
+      if (rtadv->AdvHomeAgentFlag)
+      	vty_out (vty, "  ND router advertisements with "
+				"Home Agent flag bit set.%s",
+		 VTY_NEWLINE);
     }
 }
 #endif /* RTADV */
