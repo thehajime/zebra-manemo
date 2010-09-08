@@ -1,7 +1,7 @@
 /* 
  * Neighbors of Tree Discovery protocol
  *
- * $Id: td_neighbor.c,v 91daed56d61f 2009/08/28 04:48:46 tazaki $
+ * $Id: td_neighbor.c,v 6b2a811449c5 2010/09/08 04:38:59 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -257,7 +257,12 @@ nsm_join_ar(struct td_neighbor *nbr)
 		nbr->t_treehop = thread_add_timer(master, nsm_treehop_timer, nbr, delay);
 		return NSM_HeldUp;
 	}
-
+	else if(nbr->state == NSM_HeldDown)
+	{
+          if(IS_ZEBRA_DEBUG_EVENT)
+            zlog_info ("Now in HoldDown");
+          td->attach_rtr = NULL;
+        }
 	return 0;
 }
 
@@ -420,7 +425,7 @@ struct
 	{
 		/* Held-Down */
 		{nsm_ignore,              NSM_HeldDown},         /* New_Neighbor */
-		{nsm_ignore,              NSM_HeldDown},         /* Join_AR */
+		{nsm_join_ar,             NSM_HeldDown},         /* Join_AR */
 		{nsm_ignore,              NSM_HeldDown},         /* Leave_AR */
 		{nsm_ignore,              NSM_HeldDown},         /* RA_Timeout */
 		{nsm_ignore,              NSM_HeldDown},         /* TreeHopTimer_Expired */
