@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 56ddd5e3af93 2009/11/23 00:03:49 tazaki $
+ * $Id: td.c,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -94,6 +94,43 @@ seq_greater(u_int32_t seq1, u_int32_t seq2)
     return 1;
 }
 
+static
+void td_get_coa (struct in6_addr *coa)
+{
+	struct interface *ifp;
+	struct connected *ifc;
+	struct prefix *p = NULL;
+  struct zebra_if *zif;
+  struct listnode *node;
+
+	if (!td->attach_rtr)
+		return;
+
+	ifp = td->attach_rtr->ifp;
+	zif = ifp->info;
+	for(node = listhead(ifp->connected); node; nextnode(node))
+		{
+			ifc = getdata(node);
+			p = ifc->address;
+			if(p->family != AF_INET6)
+				continue;
+			if(CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG) &&
+				 !IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)))
+				break;
+		}
+
+	memcpy(coa, &p->u.prefix6, sizeof(struct in6_addr));
+
+	{
+		char buf[INET6_ADDRSTRLEN];
+		zlog_info ("if = %s, egress=%d, ll=%d addr=%s", ifp->name, 
+							 CHECK_FLAG(zif->mndp.flags, MNDP_EGRESS_FLAG),
+							 IN6_IS_ADDR_LINKLOCAL(&(p->u.prefix6)),
+							 inet_ntop(AF_INET6, &(p->u.prefix6), buf, sizeof(buf)));
+	}
+	
+	return;
+}
 
 int
 td_make_ti_option(struct nd_opt_tree_discovery *tio)
@@ -113,7 +150,7 @@ td_make_ti_option(struct nd_opt_tree_discovery *tio)
         {
           tio->flags |= TIO_BASE_FLAG_GROUNDED;
           tio->depth = 1;
-        }
+      }
       else if(td->flags & TD_IS_FIXED_ROUTER)
         {
           tio->flags |= TIO_BASE_FLAG_GROUNDED;
@@ -144,6 +181,9 @@ td_make_ti_option(struct nd_opt_tree_discovery *tio)
           tio->flags |= TIO_BASE_FLAG_BATTERY;
         }
     }
+	/* CoA encoding */
+	td_get_coa((struct in6_addr *)&tio->coa);
+	memcpy (&td->tio.coa, &tio->coa, sizeof (struct in6_addr));
 
   /* update CRC field */
   /* FIXME non use of CoA */
@@ -1116,7 +1156,10 @@ td_init()
 	else{
 		for(node = listhead(iflist); node; nextnode(node))
 		{
-			ifp = getdata(node);
+			struct zebra_if *zif;
+
+		ifp = getdata(node);
+		zif = ifp->info;
 
 			if(if_is_loopback(ifp))
 				continue;

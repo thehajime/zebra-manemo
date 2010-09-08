@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.h,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
+ * $Id: td.h,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -72,6 +72,7 @@ struct nd_opt_tree_discovery
   u_int16_t delay;
   u_int32_t path_digest;
   u_int32_t tree_id[4];
+  u_int32_t coa[4];
 };
 
 

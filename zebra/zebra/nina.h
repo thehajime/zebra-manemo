@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.h,v 405be77ba4f3 2009/03/19 14:38:58 tazaki $
+ * $Id: nina.h,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -48,6 +48,14 @@ struct nina_neighbor
      |                                                               |
      +                                                               +
      |                                                               |
+     +                              oCoA                             +
+     |                                                               |
+     +                                                               +
+     |                                                               |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+     +                                                               +
+     |                                                               |
      +                   Prefix (Variable Length)                    +
      |                                                               |
      +                                                               +
@@ -71,6 +79,7 @@ struct nd_opt_network_in_node
 	u_int8_t depth;
 	u_int8_t rsv3;
 	u_int16_t seq;
+	struct in6_addr coa;
 	char prefix[0];
 };
 
@@ -88,6 +97,7 @@ struct nina_entry
 	   reported already to the parent AR */
 	u_int8_t reported;
 	/* reserved */
+#define NINO_NAT_CONFIRMED       (1 << 0)
 	u_int16_t rsrv1;
 
 	/* A counter of retries to count how many RA-TIOs were sent on the
@@ -119,7 +129,8 @@ struct nina_entry
 	u_int16_t seq;
 	/* reserved */
 	u_int8_t rsrv2;
-
+	/* CoA */
+	struct in6_addr coa;
 };
 
 struct nina

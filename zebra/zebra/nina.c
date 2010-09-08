@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v bbb156b6ddb6 2010/01/20 03:35:34 tazaki $
+ * $Id: nina.c,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -240,6 +240,7 @@ nina_send_packet(int sock, struct interface *ifp,
 		nino->lifetime = htonl(nina->lifetime);
 		nino->depth = nina->depth + 1;
 		nino->seq = nina->seq;
+		nino->coa = nina->coa;
 		memcpy(nino->prefix, &nina->rn->p.u.prefix6, nina->rn->p.prefixlen / 8);
 
 		len += (nino->length * 8);
@@ -323,6 +324,9 @@ nina_delay_na_timer(struct thread *thread)
 		/* connected list */
 		for(rn = route_top(nina_top->connected); rn; rn = route_next (rn)) {
 			if((nina = rn->info) != NULL) {
+				char abuf [INET6_ADDRSTRLEN];
+				memcpy (&nina->coa, &td->tio.coa, sizeof (struct in6_addr));
+				zlog_info ("NINA: COA is %s", inet_ntop (AF_INET6, &nina->coa, abuf, sizeof (abuf)));
 				listnode_add(nino_entries, nina);
 /* 				nina_send_packet(nina_top->sock, td_nbr->ifp,  */
 /* 				    &td_nbr->saddr.sin6_addr, nina); */
@@ -577,6 +581,7 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			reach->depth = nino->depth;
 			reach->seq = nino->seq;
 			reach->lifetime = ntohl(nino->lifetime);
+			memcpy (&reach->coa, &nino->coa, sizeof (struct in6_addr));
 			thread_cancel(reach->t_expire);
 			reach->t_expire = thread_add_timer(master, 
 			    nina_nino_expire, reach, reach->lifetime);
@@ -595,6 +600,7 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			reach->depth = nino->depth;
 			reach->seq = nino->seq;
 			reach->lifetime = ntohl(nino->lifetime);
+			memcpy (&reach->coa, &nino->coa, sizeof (struct in6_addr));
 			thread_cancel(reach->t_expire);
 			reach->t_expire = thread_add_timer(master, 
 			    nina_nino_expire, reach, reach->lifetime);
@@ -641,6 +647,7 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 		reach->seq = nino->seq;
 		reach->nbr = nbr;
 		reach->lifetime = ntohl(nino->lifetime);
+		memcpy (&reach->coa, &nino->coa, sizeof (struct in6_addr));
 		reach->top = nina_top;
 		reach->t_expire = thread_add_timer(master, 
 		    nina_nino_expire, reach, reach->lifetime);
@@ -675,6 +682,28 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			    inet_ntop(AF_INET6, &rn->p.u.prefix6, abuf, INET6_ADDRSTRLEN),
 			    rn->p.prefixlen);
 	}
+
+	/* If root-MR and connected to upper router, then add NAT table */
+	if (td->tio.depth == 1 && td->attach_rtr)
+		{
+			struct in6_addr ocoa, pcoa;
+			struct td_neighbor *td_nbr;
+			struct sockaddr_in6 ip6;
+			char buf [INET6_ADDRSTRLEN];
+
+			if (!IN6_IS_ADDR_UNSPECIFIED(&nino->coa) && !CHECK_FLAG (reach->rsrv1, NINO_NAT_CONFIRMED))
+				{
+					zlog_info ("NINO: ADD NAT table");
+					SET_FLAG (reach->rsrv1, NINO_NAT_CONFIRMED);
+					zlog_info ("CoA is %s", inet_ntop (AF_INET6, &nino->coa, buf, INET6_ADDRSTRLEN)); 
+					inet_pton (AF_INET6, "2001:200:0:88a4::10", &pcoa);
+					//				zebra_iptc_add ((struct in6_addr *)&ocoa, &pcoa);
+					zebra_iptc_add ((struct in6_addr *)&nino->coa, &pcoa);
+				}
+			else
+				zlog_info ("No TD NBR");
+			return;
+		}
 
 end:
 	return;
