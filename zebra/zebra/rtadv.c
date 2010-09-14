@@ -467,6 +467,16 @@ rtadv->nd_ra_retransmit;
         case ND_OPT_RA_TIO:
           if(!nbr->tio)
             nbr->tio = malloc(sizeof(struct nd_opt_tree_discovery));
+
+					/* If TIO is different from old one */
+					if(memcmp(nbr->tio, opt, opt->nd_opt_len * 8))
+						{
+							struct nd_opt_tree_discovery *tio = (struct nd_opt_tree_discovery *)opt;
+							/* triggered update */
+							zlog_info("TD: %s triggered update", td_neighbor_print(nbr));
+							rtadv_event (RTADV_TIMER, 1);
+						}
+
           memcpy(nbr->tio, opt, opt->nd_opt_len * 8);
           break;
         default:

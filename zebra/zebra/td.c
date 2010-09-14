@@ -2,7 +2,7 @@
  * Tree Discovery protocol
  * draft-thubert-tree-discovery-06
  *
- * $Id: td.c,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
+ * $Id: td.c,v 604c46178b53 2010/09/14 04:02:15 tazaki $
  *
  * Copyright (c) 2007 {TBD}
  *
@@ -119,6 +119,12 @@ void td_get_coa (struct in6_addr *coa)
 				break;
 		}
 
+	if (!p)
+		{
+			zlog_info ("No CoA. return NULL");
+			return;
+		}
+
 	memcpy(coa, &p->u.prefix6, sizeof(struct in6_addr));
 
 	{
@@ -183,7 +189,17 @@ td_make_ti_option(struct nd_opt_tree_discovery *tio)
     }
 	/* CoA encoding */
 	td_get_coa((struct in6_addr *)&tio->coa);
+	if (memcmp (&tio->coa, &td->tio.coa, sizeof (tio->coa)))
+		{
+			zlog_info ("pCoA is changed");
+			nina_change_pcoa ((struct in6_addr *)&tio->coa);
+		}
 	memcpy (&td->tio.coa, &tio->coa, sizeof (struct in6_addr));
+	if (td->attach_rtr && td->attach_rtr->tio)
+		{
+			memcpy (&tio->coa, &td->attach_rtr->tio->coa, sizeof (struct in6_addr));
+		}
+	
 
   /* update CRC field */
   /* FIXME non use of CoA */
@@ -427,6 +443,14 @@ td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 			}
     }
 
+	/* if both are nontio rtr, then use new rtr */
+	if(!nbr1->tio && !nbr2->tio)
+		{
+			if(IS_ZEBRA_DEBUG_EVENT)
+				zlog_info("Comp Tree: 2-2");
+			return 1;
+		}
+
   /* held-down nbr */
   if(nbr1->state == NSM_HeldDown && nbr2->state != NSM_HeldDown){
 		if(IS_ZEBRA_DEBUG_EVENT)
@@ -502,6 +526,13 @@ td_tio_cmp(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 static int
 td_tio_diff(struct td_neighbor *nbr1, struct td_neighbor *nbr2)
 {
+	{
+		char buf[INET6_ADDRSTRLEN];
+		if (nbr2->tio)
+			zlog_info ("pCoA is %s", inet_ntop (AF_INET6, &nbr2->tio->coa[0], buf, sizeof(buf)));
+		else
+			zlog_info ("pCoA is missing");
+	}
   if(!nbr1->tio)
     {
       if(nbr2->tio)

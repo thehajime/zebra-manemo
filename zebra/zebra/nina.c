@@ -3,7 +3,7 @@
  *
  * draft-thubert-nina-02
  *
- * $Id: nina.c,v 3b8e514bac06 2010/09/08 04:39:04 tazaki $
+ * $Id: nina.c,v 604c46178b53 2010/09/14 04:02:15 tazaki $
  *
  * Copyright (c) 2008 {TBD}
  *
@@ -506,6 +506,18 @@ nina_nino_expire(struct thread *thread)
 		    nina->nbr->ifp->ifindex, strerror(errno));
 	}
 
+	/* If root-MR and connected to upper router, then add NAT table */
+	if (CHECK_FLAG (nina->rsrv1, NINO_NAT_CONFIRMED))
+		{
+			struct in6_addr pcoa;
+			zlog_info ("NINO: DEL NAT table");
+			memcpy (&pcoa, &nina->coa, sizeof (struct in6_addr));
+			memcpy (&pcoa, &td->tio.coa, sizeof (struct in6_addr)/2);
+			//			inet_pton (AF_INET6, "2001:200:0:88a4::10", &pcoa);
+			zebra_iptc_del ((struct in6_addr *)&nina->coa, &pcoa);
+			UNSET_FLAG (nina->rsrv1, NINO_NAT_CONFIRMED);
+		}
+
 	if(nina->reported) {
 		/* Regist into unreachable list */
 		rn = route_node_get(nina_top->unreachable, &p);
@@ -691,13 +703,15 @@ nina_process_nino(struct nina_neighbor *nbr, struct nd_opt_network_in_node *nino
 			struct sockaddr_in6 ip6;
 			char buf [INET6_ADDRSTRLEN];
 
+			zlog_info ("CoA is %s", inet_ntop (AF_INET6, &nino->coa, buf, INET6_ADDRSTRLEN)); 
 			if (!IN6_IS_ADDR_UNSPECIFIED(&nino->coa) && !CHECK_FLAG (reach->rsrv1, NINO_NAT_CONFIRMED))
 				{
 					zlog_info ("NINO: ADD NAT table");
 					SET_FLAG (reach->rsrv1, NINO_NAT_CONFIRMED);
-					zlog_info ("CoA is %s", inet_ntop (AF_INET6, &nino->coa, buf, INET6_ADDRSTRLEN)); 
-					inet_pton (AF_INET6, "2001:200:0:88a4::10", &pcoa);
-					//				zebra_iptc_add ((struct in6_addr *)&ocoa, &pcoa);
+					memcpy (&pcoa, &nino->coa, sizeof (struct in6_addr));
+					memcpy (&pcoa, &td->tio.coa, sizeof (struct in6_addr)/2);
+					//					inet_pton (AF_INET6, "2001:200:0:88a4::10", &pcoa);
+					zlog_info ("pCoA is %s", inet_ntop (AF_INET6, &pcoa, buf, INET6_ADDRSTRLEN)); 
 					zebra_iptc_add ((struct in6_addr *)&nino->coa, &pcoa);
 				}
 			else
@@ -929,6 +943,38 @@ nina_read(struct thread *thread)
 };
 
 
+int
+nina_change_pcoa (struct in6_addr *new_pcoa)
+{
+	struct nina_entry *nina;
+	struct route_node *rn;
+
+	for(rn = route_top(nina_top->reachable); rn; rn = route_next (rn)) {
+		if((nina = rn->info) != NULL) {
+			if (CHECK_FLAG (nina->rsrv1, NINO_NAT_CONFIRMED))
+				{
+					struct in6_addr pcoa;
+					char abuf1[INET6_ADDRSTRLEN], abuf2[INET6_ADDRSTRLEN], abuf3[INET6_ADDRSTRLEN];
+
+					memcpy (&pcoa, &nina->coa, sizeof (struct in6_addr));
+					memcpy (&pcoa, &td->tio.coa, sizeof (struct in6_addr)/2);
+					zebra_iptc_del ((struct in6_addr *)&nina->coa, &pcoa);
+
+					memcpy (&pcoa, &nina->coa, sizeof (struct in6_addr));
+					memcpy (&pcoa, new_pcoa, sizeof (struct in6_addr)/2);
+					zebra_iptc_add ((struct in6_addr *)&nina->coa, &pcoa);
+					zlog_info ("NINO: Update NAT table from %s to %s for CoA %s",
+										 inet_ntop(AF_INET6, &td->tio.coa, abuf1, INET6_ADDRSTRLEN), 
+										 inet_ntop(AF_INET6, new_pcoa, abuf2, INET6_ADDRSTRLEN),
+										 inet_ntop(AF_INET6, &nina->coa, abuf3, INET6_ADDRSTRLEN)
+										 );
+				}
+		}
+	}
+
+	return 0;
+}
+
 
 
 
@@ -1137,6 +1183,20 @@ DEFUN (no_ipv6_nd_nina_enable,
 	return CMD_SUCCESS;
 }
 
+extern int nat_enable;
+
+DEFUN (ipv6_nat_enable,
+    ipv6_nat_enable_cmd,
+    "ipv6 nat enable",
+    IPV6_STR
+    "Neighbor discovery\n"
+    "NAT\n"
+    "Use NAT\n")
+{
+	nat_enable = 1;
+	return CMD_SUCCESS;
+}
+
 static void
 nina_show_uptime(struct vty *vty, struct nina_entry *nina)
 {
@@ -1235,6 +1295,7 @@ nina_init()
 	install_element(CONFIG_NODE, &no_ipv6_nd_nina_enable_cmd);
 	install_element(ENABLE_NODE, &show_ipv6_nd_nina_cmd);
 	install_element(VIEW_NODE, &show_ipv6_nd_nina_cmd);
+	install_element(CONFIG_NODE, &ipv6_nat_enable_cmd);
 
 	return 0;
 }

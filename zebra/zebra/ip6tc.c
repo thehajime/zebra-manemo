@@ -5,6 +5,8 @@
 #include <ip6tables.h>
 #include <linux/netfilter_ipv6/ip6t_mh.h>
 
+int nat_enable = 0;
+
 union nf_conntrack_man_proto {
 	/* Add other protocols here. */
 	__be16 all;
@@ -51,9 +53,13 @@ struct nf_nat6_multi_range_compat
 };
 
 static int
-zebra_add_chain_entry (const char *chain, const char *target, struct ip6tc_handle *handle, 
+zebra_mod_chain_entry (int cmd, const char *chain, const char *target, 
+                       struct ip6tc_handle *handle, 
                        struct in6_addr *src, struct in6_addr *dst, struct in6_addr *trans)
 {
+  if (!nat_enable)
+    return 0;
+
   struct in6_addr tmp;
   struct ip6t_entry *chain_entry = calloc (1, sizeof (struct ip6t_entry));
   long match_size = 0;
@@ -139,13 +145,36 @@ zebra_add_chain_entry (const char *chain, const char *target, struct ip6tc_handl
   if (entry_match)
     memcpy(chain_entry->elems, entry_match, match_size);
 
-  ret = ip6tc_append_entry(chain, chain_entry, handle);
+  {
+    char abuf1[INET6_ADDRSTRLEN], abuf2[INET6_ADDRSTRLEN], abuf3[INET6_ADDRSTRLEN];
+    zlog_info ("NAT cmd=%d src: %s dst: %s trans: %s",
+               cmd,
+               inet_ntop (AF_INET6, &chain_entry->ipv6.src, abuf1, sizeof (abuf1)),
+               inet_ntop (AF_INET6, &chain_entry->ipv6.dst, abuf2, sizeof (abuf2)),
+               inet_ntop (AF_INET6, trans, abuf3, sizeof (abuf3))
+               );
+  }
+
+
+  if (cmd == 0)
+    ret = ip6tc_append_entry(chain, chain_entry, handle);
+  else if (cmd == 1)
+    ret = ip6tc_delete_entry(chain, chain_entry, "", handle);
+  else
+    {
+      zlog_err ("ABORT");
+      //      assert (0);
+    }
+    
 
   free (entry_target);
   free (chain_entry);
 
   return ret;
 }
+
+#define CMD_ADD 0
+#define CMD_DEL 1
 
 int
 zebra_iptc_add (struct in6_addr *ocoa, struct in6_addr *pcoa)
@@ -167,11 +196,43 @@ zebra_iptc_add (struct in6_addr *ocoa, struct in6_addr *pcoa)
 
   trans = *ocoa;
   memcpy (&trans, pcoa, sizeof(struct in6_addr)/2); /* copy higher 64 bit */
-  zebra_add_chain_entry ("POSTROUTING", "SNAT", handle, ocoa, NULL, &trans);
-  zebra_add_chain_entry ("PREROUTING", "DNAT", handle, NULL, &trans, ocoa);
+  ret = zebra_mod_chain_entry (CMD_ADD, "POSTROUTING", "SNAT", handle, ocoa, NULL, &trans);
+  ret = zebra_mod_chain_entry (CMD_ADD, "PREROUTING", "DNAT", handle, NULL, &trans, ocoa);
 
   if (!ret) {
-    abort ();
+    zlog_err ("ABORT");
+    //    assert (0);
+  }
+  ret = ip6tc_commit(handle);
+  ip6tc_free(handle);
+}
+
+int
+zebra_iptc_del (struct in6_addr *ocoa, struct in6_addr *pcoa)
+{
+  struct ip6tc_handle *handle = NULL;
+  char *table = "nat";
+  int ret;
+  struct in6_addr src, dst, trans;
+
+  handle = ip6tc_init(table);
+  if (!handle)
+    {
+      zlog_err ("can't initialize iptables table `%s': %s",
+                table, iptc_strerror(errno));
+      return -1;
+    }
+
+  dump_entries6 (handle);
+
+  trans = *ocoa;
+  memcpy (&trans, pcoa, sizeof(struct in6_addr)/2); /* copy higher 64 bit */
+  ret = zebra_mod_chain_entry (CMD_DEL, "POSTROUTING", "SNAT", handle, ocoa, NULL, &trans);
+  ret = zebra_mod_chain_entry (CMD_DEL, "PREROUTING", "DNAT", handle, NULL, &trans, ocoa);
+
+  if (!ret) {
+    zlog_err ("ABORT");
+    //    assert (0);
   }
   ret = ip6tc_commit(handle);
   ip6tc_free(handle);
