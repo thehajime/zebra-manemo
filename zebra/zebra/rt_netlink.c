@@ -1347,7 +1347,7 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
   memset (&snl, 0, sizeof snl);
   snl.nl_family = AF_NETLINK;
 
-  if (family == AF_INET)
+  if (family == AF_INET || family == AF_INET6)
     nl = &netlink_cmd;
   else
     nl = &netlink;
