@@ -773,6 +773,15 @@ if test "${enable_snmp}" = "yes"; then
 fi
 
 dnl ----------------------------
+dnl check libip6tc (iptables-dev) 
+dnl ----------------------------
+AC_CHECK_LIB(ip6tc, ip6tc_init)
+AC_CHECK_LIB(iptc, ip6tc_init)
+AC_CHECK_LIB(xtables, xtables_init)
+AC_SUBST(LIBIP6TC)
+
+
+dnl ----------------------------
 dnl check sa_len of sockaddr
 dnl ----------------------------
 AC_MSG_CHECKING(whether struct sockaddr has a sa_len field)

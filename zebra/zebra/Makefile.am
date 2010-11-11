@@ -31,7 +31,7 @@ noinst_HEADERS = \
 	interface.h ipforward.h irdp.h netlink.h bfd.h td.h td_neighbor.h td_api.h \
 	nina.h
 
-zebra_LDADD = ../lib/libzebra.a $(otherobj) $(LIB_IPV6) -lip6tc -liptc -lxtables
+zebra_LDADD = ../lib/libzebra.a $(otherobj) $(LIB_IPV6)
 
 zebra_DEPENDENCIES = $(otherobj) ../lib/libzebra.a
 
