@@ -387,13 +387,14 @@ rtadv_process_solicit (struct interface *ifp, struct sockaddr_in6 *from)
 
 void
 rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
-                      struct nd_router_advert *rtadv, int len)
+                      struct nd_router_advert *rtadvp, int len)
 {
   struct nd_opt_hdr *opt;
   struct td_neighbor *nbr;
   struct zebra_if *zif;
   char abuf[INET6_ADDRSTRLEN];
   int new = 0;
+  int trigger = 0;
 
   if(IS_ZEBRA_DEBUG_EVENT)
 	  zlog_info ("Router advertisement received from %s", 
@@ -430,8 +431,8 @@ rtadv_process_advert (struct interface *ifp, struct sockaddr_in6 *from,
 
   /* regist expire timer */
   nbr->t_expire = thread_add_timer(master, td_ra_timeout, nbr, 
-      ntohs(rtadv->nd_ra_router_lifetime));
-  nbr->lifetime = ntohs(rtadv->nd_ra_router_lifetime);
+      ntohs(rtadvp->nd_ra_router_lifetime));
+  nbr->lifetime = ntohs(rtadvp->nd_ra_router_lifetime);
 
   /* reachable time */
   /* retransmit timer */
@@ -441,7 +442,7 @@ rtadv->nd_ra_retransmit;
 #endif
 
   /* Option parsing */
-  opt = (struct nd_opt_hdr *)++rtadv;
+  opt = (struct nd_opt_hdr *)++rtadvp;
   len -= sizeof(struct nd_router_advert);
 
   while(len>0)
@@ -474,10 +475,26 @@ rtadv->nd_ra_retransmit;
 							struct nd_opt_tree_discovery *tio = (struct nd_opt_tree_discovery *)opt;
 							/* triggered update */
 							zlog_info("TD: %s triggered update", td_neighbor_print(nbr));
-							rtadv_event (RTADV_TIMER, 1);
+							trigger = 1;
 						}
 
           memcpy(nbr->tio, opt, opt->nd_opt_len * 8);
+					if (trigger)
+						{
+							struct listnode *node;
+							for (node = listhead (iflist); node; nextnode (node))
+								{
+									struct interface *oifp = getdata (node);
+									if (if_is_loopback (oifp))
+										continue;
+
+									struct zebra_if *ozif = oifp->info;
+									if(CHECK_FLAG(ozif->mndp.flags, MNDP_INGRESS_FLAG))
+										rtadv_send_packet (rtadv->sock, oifp, 
+																			 (struct in6_addr *)&in6addr_linklocal_allnodes, 0);
+								}
+
+						}
           break;
         default:
           break;
@@ -538,7 +555,7 @@ rtadv->nd_ra_retransmit;
            td->ra_recv, ifp->ifindex);
 
       /* Packet dump */
-      zlog_dump((u_char *)rtadv, len);
+      zlog_dump((u_char *)rtadvp, len);
     }
 
   return;
