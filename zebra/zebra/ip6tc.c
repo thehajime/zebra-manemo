@@ -2,7 +2,7 @@
 
 #include <libiptc/libip6tc.h>
 #include <xtables.h>
-#include <ip6tables.h>
+//#include <ip6tables.h>
 #include <linux/netfilter_ipv6/ip6t_mh.h>
 
 int nat_enable = 0;
